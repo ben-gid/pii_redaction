@@ -1,4 +1,10 @@
 # Pii Redaction
+**incomplete; project in progress**
+##description
+A production-ready API that detects and redacts personally identifiable information from text before it enters an LLM pipeline.
+**Stack:** DeBERTa-v3 · HuggingFace Trainer · FastAPI · Docker · AWS ECS Fargate · HuggingFace Spaces
+
+## uncleaned project process and stumbles
 I thought i would start with tokenizing and training my dataset for distilbert to make sure i had fulll pipeline that worked. i thought distilbert would be the optimal model as its light, and classic for nlp classification. after tokenizing the dataset with the bert tokenizer i trained distilbert on it to make sure it worked well. it did. then i moved on to using the same functions i used to tokenize and label my dataset for distilbert for deberta-v3. it didn't work. why? because it turns out the dataset was masked with indices starting and ending with the first and last characters of it's entity respectively. so in `get_ner_tags` i would use:
 ```python
 if offset[0] >= privacy_mask["start"] and offset[1] <= privacy_mask["end"]:
