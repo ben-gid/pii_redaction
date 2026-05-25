@@ -1,0 +1,55 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# --- Python Standard ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+.env
+build/
+dist/
+*.egg-info/
+
+# --- ML Datasets (Ignore large data files) ---
+data/
+*.csv
+*.json
+*.h5
+*.npy
+*.npz
+*.parquet
+*.zip
+*.tar.gz
+
+# --- ML Model Weights & Artifacts ---
+models/
+*.pkl
+*.pth
+*.pt
+*.onnx
+*.joblib
+*.pb
+*.ckpt
+
+# --- Notebooks & Experiments ---
+.ipynb_checkpoints
+.pytest_cache/
+mlruns/
+lightning_logs/
+wandb/
+
+# --- IDEs & OS ---
+.vscode/
+.idea/
+.DS_Store
