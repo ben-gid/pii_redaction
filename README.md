@@ -1,6 +1,6 @@
 # Pii Redaction
 **incomplete; project in progress**
-##description
+## description
 A production-ready API that detects and redacts personally identifiable information from text before it enters an LLM pipeline.
 **Stack:** DeBERTa-v3 · HuggingFace Trainer · FastAPI · Docker · AWS ECS Fargate · HuggingFace Spaces
 
