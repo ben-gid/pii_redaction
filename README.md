@@ -4,7 +4,7 @@
 A production-ready API that detects and redacts personally identifiable information from text before it enters an LLM pipeline.
 **Stack:** DeBERTa-v3 · HuggingFace Trainer · FastAPI · Docker · AWS ECS Fargate · HuggingFace Spaces
 
-## uncleaned project process and stumbles
+## uncleaned project process and roadblocks
 I thought i would start with tokenizing and training my dataset for distilbert to make sure i had fulll pipeline that worked. i thought distilbert would be the optimal model as its light, and classic for nlp classification. after tokenizing the dataset with the bert tokenizer i trained distilbert on it to make sure it worked well. it did. then i moved on to using the same functions i used to tokenize and label my dataset for distilbert for deberta-v3. it didn't work. why? because it turns out the dataset was masked with indices starting and ending with the first and last characters of it's entity respectively. so in `get_ner_tags` i would use:
 ```python
 if offset[0] >= privacy_mask["start"] and offset[1] <= privacy_mask["end"]:
@@ -36,3 +36,16 @@ if offset[1] > privacy_mask["start"] and offset[0] < privacy_mask["end"]:
     else:
         label = "I-" + label
 ```
+
+2. adding 
+```python
+all_preds = [label for seq in true_preds for label in seq]
+    print("Prediction distribution:", Counter(all_preds))
+```
+to `compute` metrics temporarily showed i was getting 0 on all scores (except accuracy) because the model was only predictiong "O"
+
+
+▁          wyn        q          vr         h          053        ▁-         O          B-USERNAME I-USERNAME I-USERNAME I-USERNAME I-USERNAME O                45         45         45         45         45         45         46           
+(286, 287) (287, 290) (290, 291) (291, 293) (293, 294) (294, 297) (297, 299) 
+
+it turns out all the model weights became nan because when `AutoModelForTokenClassification` updated the classifier head, it initialized the weights to nan.
