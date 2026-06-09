@@ -22,16 +22,8 @@ build/
 dist/
 *.egg-info/
 
-# --- ML Datasets (Ignore large data files) ---
-data/
-*.csv
-*.json
-*.h5
-*.npy
-*.npz
-*.parquet
-*.zip
-*.tar.gz
+# dataset
+data/cleaned_ai4privacy_300k_pii
 
 # --- ML Model Weights & Artifacts ---
 models/
