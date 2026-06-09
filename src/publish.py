@@ -229,6 +229,13 @@ def compile_model_card(model_cfg, model_dir: Path):
             f"| {m['best_for']} |"
         )
         comparison_rows.append(row)
+    if model_cfg['model_name'] == "DeBERTa-v3-XSmall PII Redaction":
+        note = "[1] see [Latency Note](#latency-note) for latency explanation"
+    else:
+        note = "[1] see [DeBERTa-v3-XSmall PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-xsmall/#latency-note) for latency explanation"
+
+    comparison_rows.append("\n" + note)        
+        
     comparison_table = "\n".join(comparison_rows)
 
     card_content = f"""---
@@ -332,8 +339,6 @@ Evaluated on the English validation subset (3,973 examples) at the best checkpoi
 |-------|----------|------------------------|-----------------|----------|
 {comparison_table}
 
-[1] see [Latency Note](#latency-note) for latency explanation
-
 ## License
 
 The model weights are released for research and non-commercial use,
@@ -360,12 +365,12 @@ If you use this model, please cite the base model architecture and the training 
 **Training dataset:**
 ```bibtex
 @misc{{ai4privacy2023pii,
-  title     = {{{{PII}} Masking 300k}},
-  author    = {{{{Ai4Privacy}}}},
-  year      = {{{{2023}}}},
-  publisher = {{{{Hugging Face}}}},
-  doi       = {{{{10.57967/hf/1995}}}},
-  url       = {{{{https://huggingface.co/datasets/ai4privacy/pii-masking-300k}}}}
+  title     = {{PII Masking 300k}},
+  author    = {{Ai4Privacy}},
+  year      = {{2023}},
+  publisher = {{Hugging Face}},
+  doi       = {{10.57967/hf/1995}},
+  url       = {{https://huggingface.co/datasets/ai4privacy/pii-masking-300k}}
 }}
 ```
 """
