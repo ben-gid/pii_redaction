@@ -21,7 +21,7 @@ model-index:
 - name: DeBERTa-v3-Base PII Redaction
   results:
   - task:
-      type: token_classification
+      type: token-classification
     dataset:
       name: ai4privacy/pii-masking-300k
       type: ai4privacy/pii-masking-300k
@@ -35,7 +35,7 @@ model-index:
       value: 0.9607170253139005
 ---
 
-# PII Redaction Model
+# DeBERTa-v3-Base PII Redaction
 
 Fine-tuned [microsoft/deberta-v3-base](https://huggingface.co/microsoft/deberta-v3-base) for Named Entity Recognition targeting 27 PII entity types. Trained on the English subset of [ai4privacy/pii-masking-300k](https://huggingface.co/datasets/ai4privacy/pii-masking-300k) with a class-weighted `CrossEntropyLoss`. Achieves **0.9557 macro-F1** on the validation set.
 
@@ -43,7 +43,7 @@ Fine-tuned [microsoft/deberta-v3-base](https://huggingface.co/microsoft/deberta-
 constraint. Best overall performance (macro F1: 0.9557), particularly 
 on rare entity types. Well-suited for offline batch processing, 
 compliance pipelines, or any server-side deployment where an extra 
-~5ms of latency is acceptable. Inference: ~11.7ms on RTX 5070.
+~5ms of latency is acceptable.
 
 ## Usage
 
@@ -51,8 +51,8 @@ compliance pipelines, or any server-side deployment where an extra
 from transformers import pipeline
 
 pipe = pipeline(
-    "ner",
-    model=bengid/pii-redaction-deberta-base,
+    "token-classification",
+    model="bengid/pii-redaction-deberta-base",
     aggregation_strategy="first",
     device=0  # omit for CPU
 )
@@ -60,9 +60,6 @@ pipe = pipeline(
 text = "She lives at 742 Evergreen Terrace, Springfield, IL 62704."
 entities = pipe(text)
 print(entities)
-```
-```output
-[{'entity_group': 'BUILDING', 'score': np.float32(0.96388406), 'word': '742', 'start': 12, 'end': 16}, {'entity_group': 'STREET', 'score': np.float32(0.8134035), 'word': 'EvergreenTerrace,', 'start': 16, 'end': 35}, {'entity_group': 'CITY', 'score': np.float32(0.98855907), 'word': 'Springfield,', 'start': 35, 'end': 48}, {'entity_group': 'STATE', 'score': np.float32(0.9980453), 'word': 'IL', 'start': 48, 'end': 51}, {'entity_group': 'POSTCODE', 'score': np.float32(0.9239461), 'word': '62704.', 'start': 51, 'end': 58}]
 ```
 
 ## Training Data
@@ -81,12 +78,9 @@ The full dataset is multilingual; this model targets English text only.
 - Dropped `CARDISSUER` entity class (little support)
 - Validation set split 50/50 into validation and test
 
-*Full preprocessing notebook:*
-[prepare_ds.ipynb](https://github.com/ben-gid/pii_redaction/blob/main/notebooks/prepare_ds.ipynb)
-
 ## Training Procedure
 
-Two-phase Fine-tuned (frozen backbone → unfrozen) from [`microsoft/deberta-v3-base`](https://huggingface.co/microsoft/deberta-v3-base) using a weighted token-classification trainer and discriminative LRs.
+Two-phase Fine-tuning (frozen backbone → unfrozen) from [`microsoft/deberta-v3-base`](https://huggingface.co/microsoft/deberta-v3-base) using a weighted token-classification trainer and stage-specific learning rates.
 
 ### Hyperparameters
 | Parameter | Stage 1 (frozen backbone) | Stage 2 (full fine-tune) |
@@ -100,7 +94,6 @@ Two-phase Fine-tuned (frozen backbone → unfrozen) from [`microsoft/deberta-v3-
 | Precision             | bf16    | bf16   |
 | Weight decay          | 0.01 | 0.01 |
 | Seed                  | 42    | 42   |
-
 
 ## Evaluation
 
@@ -151,27 +144,18 @@ Evaluated on the English validation subset (3,973 examples) at the best checkpoi
 - **English only** — trained exclusively on English text; performance on other languages is undefined.
 - **Max 512 tokens** — inherited from DeBERTa's positional embeddings. Longer documents should be chunked.
 - **Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities:
-
-	| Entity | F1 | Support |
-	|--------|------|---------|
-	| LASTNAME2 | 0.7570 | 313 |
-	| LASTNAME3 | 0.7822 | 105 |
-	| GIVENNAME2 | 0.8102 | 255 |
-	| LASTNAME1 | 0.8501 | 1158 |
-	| GIVENNAME1 | 0.8640 | 904 |
-
-	Likely causes: performance correlates strongly with training support — 
-	LASTNAME1/GIVENNAME1 (primary occurrences, ~900-1100 examples) score 
-	significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
-	105-313 examples). Additionally, names are inherently context-dependent: 
-	without surrounding cues like titles or formal structure, the model has 
-	less signal to distinguish them from non-PII tokens — even the 
-	best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
-	the macro F1 of 0.9557, suggesting names are a structurally harder 
-	category regardless of support.
+**Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities.
+Likely causes: performance correlates strongly with training support — 
+LASTNAME1/GIVENNAME1 (primary occurrences, ~900–1100 examples) score 
+significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
+105–313 examples). Additionally, names are inherently context-dependent: 
+without surrounding cues like titles or formal structure, the model has 
+less signal to distinguish them from non-PII tokens — even the 
+best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
+the macro F1 of 0.9557, suggesting names are a structurally harder 
+category regardless of support.
 - **Not a redaction tool by itself** — this model detects and labels PII spans; downstream redaction/masking logic must be implemented separately.
 - **Subword labeling convention** — following the HuggingFace token classification convention, only the first subword of each word was assigned its NER label during training; continuation subwords were assigned `-100` (ignored by the loss). The practical consequence is that the model predicts `O` with high confidence on continuation subwords, which can cause partial detection of multi-subword entities (e.g. `john@example.com` returned as only `john`) when using `aggregation_strategy="simple"`. Use `aggregation_strategy="first"` for inference, which is consistent with this training convention.
-- **Not a redaction tool by itself** — this model detects and labels PII spans; downstream redaction/masking logic must be implemented separately.
 
 ## Intended Use
 
@@ -185,7 +169,6 @@ Evaluated on the English validation subset (3,973 examples) at the best checkpoi
 - Real-time high-stakes medical or legal decision-making without human review.
 - As a sole compliance mechanism — model errors are expected; human auditing is recommended.
 
-
 ## Model Comparison
 
 | Model | Macro F1 | Params (non-embedding) | Inference Speed | Best For |
@@ -194,7 +177,7 @@ Evaluated on the English validation subset (3,973 examples) at the best checkpoi
 | [DeBERTa-v3-Small PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-small) | 0.9476 | Small (44M params) | ~6.5ms on RTX 5070 | Latency |
 | [DeBERTa-v3-XSmall PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-xsmall) | 0.9303 | XSmall (22M params) | ~11.6ms on RTX 5070 [1] | Memory |
 
-[1] see x-small card for latency explanation
+[1] see [DeBERTa-v3-XSmall PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-xsmall/#latency-note) for latency explanation
 
 ## License
 
@@ -230,4 +213,3 @@ If you use this model, please cite the base model architecture and the training 
   url       = {https://huggingface.co/datasets/ai4privacy/pii-masking-300k}
 }
 ```
-
