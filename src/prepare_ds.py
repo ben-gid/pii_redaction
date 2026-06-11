@@ -85,7 +85,9 @@ def main():
         del train_entity_counter[key]
 
     # Generate labels maps
-    entity_classes = sorted(list(train_entity_counter.keys()))
+    # TODO: add sorted back to entity_classes when i can retrain model with new ids
+    # it's currently sorted by first appearance
+    entity_classes = list(train_entity_counter.keys())
     label2id = {"O": 0}
     for i, entity in enumerate(entity_classes):
         b_id = 1 + i * 2
@@ -133,6 +135,7 @@ def main():
     updated_and_cleaned_dataset.save_to_disk(str(dataset_path))
 
     label_info = {
+        "entities": entity_classes,
         "label2id": label2id,
         "id2label": id2label,
         "all_entities_counted": dict(final_entity_counter),

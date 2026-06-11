@@ -1,51 +1,62 @@
-# Pii Redaction
-**incomplete; project in progress**
-## description
+# PII Redaction API
+
 A production-ready API that detects and redacts personally identifiable information from text before it enters an LLM pipeline.
+
 **Stack:** DeBERTa-v3 · HuggingFace Trainer · FastAPI · Docker · AWS ECS Fargate · HuggingFace Spaces
 
-## uncleaned project process and roadblocks
-I thought i would start with tokenizing and training my dataset for distilbert to make sure i had fulll pipeline that worked. i thought distilbert would be the optimal model as its light, and classic for nlp classification. after tokenizing the dataset with the bert tokenizer i trained distilbert on it to make sure it worked well. it did. then i moved on to using the same functions i used to tokenize and label my dataset for distilbert for deberta-v3. it didn't work. why? because it turns out the dataset was masked with indices starting and ending with the first and last characters of it's entity respectively. so in `get_ner_tags` i would use:
-```python
-if offset[0] >= privacy_mask["start"] and offset[1] <= privacy_mask["end"]:
-    label = privacy_mask["label"]
-    if offset[0] == privacy_mask["start"]:
-        label = "B-" + label
-    else:
-        label = "I-" + label
-```
-this worked well for the distilbert tokenizer since the offsets returned from the tokenizer matched the way the authors masked the dataset. However, deberta uses a different type of tokenizer [TODO: add type tokenizer], which tokenizes words by their starting white space. so `get_ner_tags` from above wouldn't register the first token of the entity if it started with a whitespace. for example, the time entity from the first training example was tagged like this:
-| Row            | Token 1      | Token 2      | Token 3      | Token 4      |
-|----------------|--------------|--------------|--------------|--------------|
-| **tokens**     | `▁10`        | `:`          | `20`         | `am`         |
-| **labels**     | `O`          | `I-TIME`     | `I-TIME`     | `I-TIME`     |
-| **word_ids**   | `49`         | `49`         | `49`         | `49`         |
-| **token_offsets** | `(310, 313)` | `(313, 314)` | `(314, 316)` | `(316, 318)` |
-the "_10" token wasn't labeled with "B_TIME" since its offset started at "310" and the masks offset the authors of the dataset set starts at 311. 
-```json
-{'value': '10:20am', 'start': 311, 'end': 318, 'label': 'TIME'}
-```
-so i had to change my `get_ner_labels` to instead tag differently:
-```python
-# if statement is switched to check if any character of the token falls within the mask
-if offset[1] > privacy_mask["start"] and offset[0] < privacy_mask["end"]:
-    label = privacy_mask["label"]
-    # switch if statement to also include less than
-    if offset[0] <= privacy_mask["start"]:
-        label = "B-" + label
-    else:
-        label = "I-" + label
-```
+---
 
-2. adding 
-```python
-all_preds = [label for seq in true_preds for label in seq]
-    print("Prediction distribution:", Counter(all_preds))
-```
-to `compute` metrics temporarily showed i was getting 0 on all scores (except accuracy) because the model was only predictiong "O"
+## Roadblocks
 
+- **SentencePiece offset mismatch** — DeBERTa's SentencePiece tokenizer includes leading whitespace in the next token's offset, so the dataset's `privacy_mask` start index (which points to the first non-whitespace character) doesn't match any token offset. Fixed by switching from `offset[0] >= start and offset[1] <= end` to `offset[1] > start and offset[0] < end` (overlap-based check) and using `offset[0] <= start` for the B- prefix instead of `offset[0] == start`.
 
-▁          wyn        q          vr         h          053        ▁-         O          B-USERNAME I-USERNAME I-USERNAME I-USERNAME I-USERNAME O                45         45         45         45         45         45         46           
-(286, 287) (287, 290) (290, 291) (291, 293) (293, 294) (294, 297) (297, 299) 
+- **NaN gradients from hidden fp16** — The model loaded weights in fp16 even though `fp16=False` and `bf16=True` were set, causing all weights to become NaN and the model to predict only "O". Had to manually iterate `model.named_modules()` and cast every module to `torch.float32`.
 
-it turns out all the model weights became nan because when `AutoModelForTokenClassification` updated the classifier head, it initialized the weights to nan.
+- **Name entities are harder** — GIVENNAME and LASTNAME entities consistently score ~0.10–0.20 below macro F1 across all variants, driven by limited training support for secondary/tertiary occurrences (LASTNAME2/3, GIVENNAME2) and names being inherently context-dependent.
+
+- **Tokenizer differences across architectures** — DistilBERT (WordPiece), DeBERTa (SentencePiece), and RoBERTa (BPE) each tokenize differently. The offset-alignment logic had to be rewritten per tokenizer.
+
+- **Subword labeling convention** — Continuation subwords are masked with `-100` during training, so `aggregation_strategy="simple"` produces partial entity detections. Must use `aggregation_strategy="first"` at inference.
+
+---
+
+## Implementation
+
+- [x] **Phase 1 — Data & Baseline**
+  - Loaded and explored `ai4privacy/pii-masking-300k`
+  - Filtered to English only (29,908 train / 3,973 val / 3,973 test)
+  - Removed CARDISSUER (only 5 examples)
+  - Created BIO label mappings for 27 entity types
+  - Trained DistilBERT baseline pipeline
+
+- [x] **Phase 2 — Model & Training**
+  - DeBERTa-v3-base: macro F1 **0.9564** on test set
+  - DeBERTa-v3-small: macro F1 **0.9497** on test set
+  - DeBERTa-v3-xsmall: macro F1 **0.9422** on test set
+  - RoBERTa-base experiment (0.9553 test F1)
+  - Custom `WeightedTokenClassificationTrainer` with class-balanced loss
+  - Two-phase training (frozen backbone → unfrozen full fine-tune)
+  - W&B logging with per-entity F1 and interactive HTML prediction tables
+  - Models published to HF Hub: `bengid/pii-redaction-deberta-{base,small,xsmall}`
+
+- [x] **Phase 3 — Redaction Logic**
+  - `PIIRedactor` class with chunking, overlap resolution, and redaction
+  - Overlapping token chunks with boundary-aligned splitting (paragraph/sentence-aware)
+  - Overlap resolution by max confidence score
+  - CLI entry point for file/stdin redaction
+  - Structured `RedactionResponse` Pydantic schema
+
+- [] **Phase 4 — FastAPI Service**
+  - `POST /redact` — detect and redact PII, threshold per request
+  - `GET /health` — liveness check
+  - `GET /model-info` — model metadata and entity types
+  - Optional API key auth via `X-API-Key` header
+  - Model loaded once at startup via lifespan
+  - CORS enabled, structured JSON error handling
+  - Swagger UI at `/docs`
+
+- [ ] Phase 5 — Docker multi-stage build
+- [ ] Phase 5 — ECR push & ECS Fargate deployment
+- [ ] Phase 6 — HuggingFace Spaces Gradio demo with `gr.HighlightedText`
+- [ ] Architecture diagram for README
+- [ ] `/pseudonymize` endpoint (consistent fake value replacement)
