@@ -53,82 +53,17 @@ def main() -> None:
         python -m src.redactor --file input.txt --model_variant base \\
             --threshold 0.5 --stride 0.25 --max_length 384
     """
-    parser = argparse.ArgumentParser(
-        description="Detect and redact PII entities in text using a DeBERTa-v3 model."
-    )
-    parser.add_argument(
-        "--text",
-        type=str,
-        default=None,
-        help="Text to redact (inline).  Mutually exclusive with --file.",
-    )
-    parser.add_argument(
-        "--file",
-        type=str,
-        default=None,
-        help="Path to a file whose contents should be redacted.",
-    )
-    parser.add_argument(
-        "--model_variant",
-        type=str,
-        default="small",
-        choices=[*MODEL_REGISTRY.keys()],
-        help="Pre-trained model variant to use.  Default: %(default)s.",
-    )
-    parser.add_argument(
-        "--threshold",
-        type=float,
-        default=0.3,
-        help="Minimum confidence score for keeping an entity.  Default: %(default)s.",
-    )
-    parser.add_argument(
-        "--output_path",
-        type=str,
-        default=None,
-        help="If provided, the structured JSON response is written to this file "
-        "instead of printed to stdout.",
-    )
-    parser.add_argument(
-        "--stride",
-        type=float,
-        default=0.5,
-        help="Overlap ratio between consecutive chunks (0–1).  Default: %(default)s.",
-    )
-    parser.add_argument(
-        "--max_length",
-        type=int,
-        default=512,
-        help="Maximum model input length in tokens (incl. special tokens).  "
-        "Default: %(default)s.",
-    )
+    args = _parse_args()
 
-    args = parser.parse_args()
-
-    # Validate input source.
-    if not args.text and not args.file:
-        print("Error: Must provide either --text or --file.", file=sys.stderr)
-        sys.exit(1)
-    if args.text and args.file:
-        print("Error: --text and --file are mutually exclusive.", file=sys.stderr)
-        sys.exit(1)
-
-    if args.file:
-        text = Path(args.file).read_text(encoding="utf-8")
-    else:
-        text = args.text  # type: ignore[assignment]
-
-    if not text:
-        print("Error: Input text is empty.", file=sys.stderr)
-        sys.exit(1)
+    text = _validate_args(args)
 
     redactor = PIIRedactor(
         model_id=args.model_variant,
-        threshold=args.threshold,
         stride=args.stride,
         max_length=args.max_length,
     )
 
-    response = redactor.predict(text)
+    response = redactor.predict(text, threshold=args.threshold)
     output = response.model_dump_json(indent=2)
 
     if args.output_path:
@@ -224,12 +159,10 @@ class PIIRedactor:
     def __init__(
         self,
         model_id: str = "small",
-        threshold: float = 0.3,
         stride: float = 0.5,
         max_length: int = 512,
         device: Optional[int] = None,
     ) -> None:
-        self.threshold = threshold
         self.stride = stride
         self.max_length = max_length
 
@@ -395,12 +328,12 @@ class PIIRedactor:
     # ------------------------------------------------------------------
 
     def _predict_chunk(
-        self, text: str, chunk_start: int, chunk_end: int
+        self, text: str, chunk_start: int, chunk_end: int, threshold: float
     ) -> list[Entity]:
         """Run the NER pipeline on a single chunk and return entities.
 
         Entity offsets are adjusted from chunk-relative to text-absolute.
-        Entities whose confidence is below ``self.threshold`` are dropped.
+        Entities whose confidence is below ``threshold`` are dropped.
         """
         chunk_text = text[chunk_start:chunk_end]
         results = self._pipe(chunk_text)
@@ -408,7 +341,7 @@ class PIIRedactor:
         entities: list[Entity] = []
         for result in results:
             score = result["score"] 
-            if float(score) < self.threshold:
+            if float(score) < threshold:
                 continue
 
             # Newer versions of ``transformers`` return ``entity_group``;
@@ -488,7 +421,7 @@ class PIIRedactor:
     # Public API
     # ------------------------------------------------------------------
 
-    def predict(self, text: str) -> RedactionResponse:
+    def predict(self, text: str, threshold: float=0.3) -> RedactionResponse:
         """Detect PII entities in ``text`` and produce a redacted version.
 
         This is the main entry-point.  It handles chunking, batched
@@ -502,9 +435,9 @@ class PIIRedactor:
         chunks = self._create_chunks(text)
 
         if len(chunks) == 1:
-            entities = self._predict_chunk(text, chunks[0][0], chunks[0][1])
+            entities = self._predict_chunk(text, chunks[0][0], chunks[0][1], threshold)
         else:
-            all_entities = [self._predict_chunk(text, s, e) for s, e in chunks]
+            all_entities = [self._predict_chunk(text, s, e, threshold) for s, e in chunks]
             entities = self._resolve_overlap(all_entities)
 
         entities.sort(key=lambda e: e.start)
@@ -536,6 +469,78 @@ class PIIRedactor:
             result[entity.start : entity.end] = list(placeholder)
         return "".join(result)
 
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Detect and redact PII entities in text using a DeBERTa-v3 model."
+    )
+    parser.add_argument(
+        "--text",
+        type=str,
+        default=None,
+        help="Text to redact (inline).  Mutually exclusive with --file.",
+    )
+    parser.add_argument(
+        "--file",
+        type=str,
+        default=None,
+        help="Path to a file whose contents should be redacted.",
+    )
+    parser.add_argument(
+        "--model_variant",
+        type=str,
+        default="small",
+        choices=[*MODEL_REGISTRY.keys()],
+        help="Pre-trained model variant to use.  Default: %(default)s.",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.3,
+        help="Minimum confidence score for keeping an entity.  Default: %(default)s.",
+    )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        default=None,
+        help="If provided, the structured JSON response is written to this file "
+        "instead of printed to stdout.",
+    )
+    parser.add_argument(
+        "--stride",
+        type=float,
+        default=0.5,
+        help="Overlap ratio between consecutive chunks (0-1).  Default: %(default)s.",
+    )
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=512,
+        help="Maximum model input length in tokens (incl. special tokens).  "
+        "Default: %(default)s.",
+    )
+
+    return parser.parse_args()
+
+def _validate_args(args: argparse.Namespace) -> str:
+    # Validate input source.
+    if not args.text and not args.file:
+        print("Error: Must provide either --text or --file.", file=sys.stderr)
+        sys.exit(1)
+    if args.text and args.file:
+        print("Error: --text and --file are mutually exclusive.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.file:
+        text = Path(args.file).read_text(encoding="utf-8")
+    else:
+        text = args.text
+
+    if not text:
+        print("Error: Input text is empty.", file=sys.stderr)
+        sys.exit(1)
+        
+    return text
 
 if __name__ == "__main__":
     main()
