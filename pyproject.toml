@@ -15,8 +15,13 @@ dependencies = [
     "mlflow>=3.12.0",
     "sentencepiece>=0.2.1",
     "seqeval>=1.2.2",
+    "slowapi>=0.1.9",
     "tiktoken>=0.13.0",
     "torch>=2.11.0",
     "transformers[torch]>=5.8.0",
     "wandb>=0.26.1",
 ]
+
+[tool.pyright]
+extraPaths = []
+

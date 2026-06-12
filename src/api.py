@@ -4,144 +4,134 @@ PII Redaction API — FastAPI service wrapping the PII redactor.
 Endpoints:
     GET  /health       — liveness check
     GET  /model-info   — model metadata and supported entity types
+    GET  /             — demo index
     POST /redact       — detect and redact PII in text
+    POST /demo/redact  — redact demo input text
+    GET  /Api-keys     - admin create api key
 """
 
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, field_validator
+from fastapi import FastAPI, HTTPException, Request, status, Depends, Header 
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
-from src.redactor import PIIRedactor, RedactionResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from src.redactor import PIIRedactor
+from src.models import (
+    AppSettings, RedactRequest, HealthResponse, ModelInfoResponse, 
+    RedactionResponse,
+)
 
 logger = logging.getLogger(__name__)
+templates = Jinja2Templates("templates")
 
+def get_ip(request: Request) -> str:
+    # when using a proxy
+    if forwarded := request.headers.get("X-Forwarded-For"):
+        return forwarded.split(",")[0].strip()
+    
+    # request.client may be None (e.g., in some ASGI setups), so guard access
+    client = request.client
+    if client is None:
+        return "unknown"
+    return getattr(client, "host", "unknown")
 
-# ---------------------------------------------------------------------------
-# Singleton app state (model loaded once at startup)
-# ---------------------------------------------------------------------------
+limiter = Limiter(key_func=get_ip)
+
+settings = AppSettings()
 
 class AppState:
-    redactor: PIIRedactor | None = None
-
-
+    redactor: Optional[PIIRedactor] = None
+    limiter: Optional[Limiter] = None
+    
 _state = AppState()
-
-
-# ---------------------------------------------------------------------------
-# Request / Response schemas
-# ---------------------------------------------------------------------------
-
-class RedactRequest(BaseModel):
-    text: str = Field(
-        ...,
-        min_length=1,
-        max_length=10000,
-        description="Text to redact (max 10k characters).",
-    )
-    threshold: float = Field(
-        default=0.3,
-        ge=0.0,
-        le=1.0,
-        description="Minimum confidence score for detected entities.",
-    )
-
-    @field_validator("text")
-    @classmethod
-    def _reject_blank(cls, v: str) -> str:
-        stripped = v.strip()
-        if not stripped:
-            raise ValueError("text must not be empty or whitespace-only")
-        return v
-
-
-class HealthResponse(BaseModel):
-    status: str
-    model_loaded: bool
-
-
-class ModelInfoResponse(BaseModel):
-    model_name: str
-    model_variant: str
-    entity_types: list[str]
-    max_length: int
-    default_threshold: float
-
-
-# ---------------------------------------------------------------------------
-# Optional API-key authentication
-# ---------------------------------------------------------------------------
-
-_API_KEY: str | None = os.environ.get("PII_API_KEY")
-
-
-async def _verify_api_key(
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-) -> None:
-    if _API_KEY is not None and x_api_key != _API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key",
-        )
-
-
-# ---------------------------------------------------------------------------
-# Application lifespan — load model once at startup
-# ---------------------------------------------------------------------------
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    model_variant = os.environ.get("PII_MODEL_VARIANT", "small")
-    threshold = float(os.environ.get("PII_DEFAULT_THRESHOLD", "0.3"))
-    logger.info("Loading model variant '%s' (threshold=%.2f) …", model_variant, threshold)
-    _state.redactor = PIIRedactor(model_id=model_variant, threshold=threshold)
-    logger.info("Model loaded successfully")
+    model_variant = settings.model_id
+    threshold = settings.threshold
+    logger.info(f"loading model variant {model_variant} (threshold={threshold:.2f}) ...")
+    _state.redactor = PIIRedactor(model_id=model_variant)
+    _state.limiter = limiter
+    logger.info("model loaded successfully")
     yield
-
-
-# ---------------------------------------------------------------------------
-# FastAPI application
-# ---------------------------------------------------------------------------
-
+    
 app = FastAPI(
     title="PII Redaction API",
     description="Detect and redact personally identifiable information from text "
     "using a fine-tuned DeBERTa-v3 model.",
     version="0.1.0",
     lifespan=lifespan,
-    docs_url="/docs",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) # type: ignore[arg-type]
 
+# optional API key
+# TODO    
+_API_KEY: Optional[str] = settings.api_key
 
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
+async def _verify_api_key(
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
+) -> None:
+    if _API_KEY is not None and x_api_key != _API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key"
+        ) 
+
+async def run_redaction(text: str, threshold: float) -> RedactionResponse:
+    if _state.redactor is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Redactor isn't loaded in app state"
+        )
+    
+    try:
+        result = _state.redactor.predict(text, threshold)
+    except Exception:
+        logger.exception("Redaction failed during inference")
+        raise HTTPException(status_code=500, detail="Redaction failed during inference")    
+    
+    return result
+
+@app.get("/", response_class=HTMLResponse, description="serve demo html")
+async def index(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+    
+    
+@app.post("/demo/redact", response_model=RedactionResponse, description="return redacted text")
+@limiter.limit("10/day")
+async def demo_redact(
+    request: Request, # fastapi request for slowapi limiter
+    body: RedactRequest
+):
+    return run_redaction(body.text, body.threshold)
+    
+    
+@app.post("/redact", response_model=RedactionResponse, tags=["PII Redaction"])
+async def redact(
+    request: RedactRequest,
+    _: None = Depends(_verify_api_key)
+):
+    return run_redaction(request.text, request.threshold)
+
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
 async def health():
-    """Liveness check — returns ``healthy`` when the model is loaded."""
     return HealthResponse(
         status="healthy",
-        model_loaded=_state.redactor is not None,
+        model_loaded=_state.redactor is not None
     )
-
-
+    
+    
 @app.get("/model-info", response_model=ModelInfoResponse, tags=["System"])
 async def model_info():
     """Return metadata about the currently loaded model."""
@@ -155,44 +145,11 @@ async def model_info():
 
     return ModelInfoResponse(
         model_name="DeBERTa-v3 PII Redaction",
-        model_variant=os.environ.get("PII_MODEL_VARIANT", "small"),
+        model_variant="small",
         entity_types=sorted(raw_labels),
         max_length=_state.redactor.max_length,
-        default_threshold=_state.redactor.threshold,
     )
-
-
-@app.post("/redact", response_model=RedactionResponse, tags=["PII Redaction"])
-async def redact(
-    request: RedactRequest,
-    _: None = Depends(_verify_api_key),
-):
-    """Detect PII entities in ``text`` and return a redacted version."""
-    if _state.redactor is None:
-        raise HTTPException(status_code=503, detail="Model not loaded")
-
-    redactor = _state.redactor
-
-    old_threshold = redactor.threshold
-    redactor.threshold = request.threshold
-    try:
-        result = redactor.predict(request.text)
-    except Exception:
-        logger.exception("Redaction failed during inference")
-        raise HTTPException(status_code=500, detail="Redaction failed during inference")
-    finally:
-        redactor.threshold = old_threshold
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Error handlers
-# ---------------------------------------------------------------------------
-
-@app.exception_handler(HTTPException)
-async def _http_exception_handler(request, exc: HTTPException):
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.detail, "status_code": exc.status_code},
-    )
+    
+@app.post("/api-keys")
+async def create_key():
+    raise NotImplementedError()

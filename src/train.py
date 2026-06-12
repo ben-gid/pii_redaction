@@ -28,10 +28,8 @@ Key Lessons & Design Decisions:
 from tqdm import tqdm
 import argparse
 import json
-import os
 from collections import Counter
 from pathlib import Path
-from typing import Optional
 
 import torch
 import numpy as np
@@ -265,7 +263,7 @@ def main():
     # Calculate class weights from training tags (inverse frequency)
     print("Calculating class weights from training labels (inverse frequency)...")
     labels_counter = Counter()
-    for labels in tqdm(dataset["train"]["labels"], desc="Counting labels"):
+    for labels in tqdm(dataset["train"]["labels"], desc="Counting labels"): # type: ignore
         labels_counter.update(labels)
     
     labels_count_tensor = torch.tensor(
@@ -368,8 +366,9 @@ def main():
         log_pii_test_results(trainer, dataset["test"], tokenizer, id2label, run=run)
         
         # Log worst F1 performance categories to stdout/wandb logs
-        pred_output = trainer.predict(test_dataset=dataset["test"])
-        f1s = [(metric, val) for metric, val in pred_output.metrics.items() if metric.endswith("f1")]
+        pred_output = trainer.predict(test_dataset=dataset["test"]) # type: ignore
+        metrics = getattr(pred_output, "metrics", None) or {}
+        f1s = [(metric, val) for metric, val in metrics.items() if metric.endswith("f1")]
         sorted_f1s = sorted(f1s, key=lambda x: x[1])
         print("Worst performing entity groups by F1 score:")
         for metric, val in sorted_f1s[:7]:
