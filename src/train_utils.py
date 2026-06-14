@@ -22,7 +22,6 @@ Learnings & Context:
    consistent with the token-classification training configuration.
 """
 
-import json
 from typing import Optional, Any, Union
 import numpy as np
 import torch

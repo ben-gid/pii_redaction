@@ -13,12 +13,14 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, status, Depends, Header 
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -31,7 +33,8 @@ from src.models import (
 )
 
 logger = logging.getLogger(__name__)
-templates = Jinja2Templates("templates")
+src_dir = Path(__file__).resolve().parent
+templates = Jinja2Templates(src_dir/"templates")
 
 def get_ip(request: Request) -> str:
     # when using a proxy
@@ -72,6 +75,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
+
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) # type: ignore[arg-type]
 
 # optional API key
@@ -102,26 +107,26 @@ async def run_redaction(text: str, threshold: float) -> RedactionResponse:
     
     return result
 
-@app.get("/", response_class=HTMLResponse, description="serve demo html")
+@app.get("/", response_class=HTMLResponse, description="serve demo html", tags=["Demo"])
 async def index(request: Request):
     return templates.TemplateResponse(request, "index.html")
     
     
-@app.post("/demo/redact", response_model=RedactionResponse, description="return redacted text")
+@app.post("/demo/redact", response_model=RedactionResponse, description="return redacted text", tags=["Demo", "PII Redaction"])
 @limiter.limit("10/day")
 async def demo_redact(
     request: Request, # fastapi request for slowapi limiter
     body: RedactRequest
 ):
-    return run_redaction(body.text, body.threshold)
+    return await run_redaction(body.text, body.threshold)
     
     
-@app.post("/redact", response_model=RedactionResponse, tags=["PII Redaction"])
+@app.post("/redact", response_model=RedactionResponse, tags=["PII Redaction"], 
+          dependencies=[Depends(_verify_api_key)])
 async def redact(
     request: RedactRequest,
-    _: None = Depends(_verify_api_key)
 ):
-    return run_redaction(request.text, request.threshold)
+    return await run_redaction(request.text, request.threshold)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["System"])
@@ -150,6 +155,6 @@ async def model_info():
         max_length=_state.redactor.max_length,
     )
     
-@app.post("/api-keys")
+@app.post("/api-keys", tags=[""])
 async def create_key():
     raise NotImplementedError()

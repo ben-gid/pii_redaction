@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PII Redaction API Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header-row">
+            <h1>PII Redaction</h1>
+            <a href="/docs" target="_blank" class="docs-btn">API Docs ↗</a>
+        </div>
+        <p>Enter sensitive text below to detect and redact personally identifiable information.</p>
+        
+        <label for="text-input">Input Text</label>
+        <div class="textarea-container" id="drop-zone">
+            <textarea id="text-input" placeholder="Type, paste, or drop a text file (.txt, .md, etc.) here..."></textarea>
+            <div class="drop-overlay">Drop file to load text</div>
+        </div>
+        
+        <div class="controls-row">
+            <div class="input-group">
+                <label for="threshold-input">Threshold</label>
+                <input type="number" id="threshold-input" min="0" max="1" step="0.01" value="0.3" placeholder="Threshold">
+            </div>
+            <button onclick="redact()">Redact Text</button>
+        </div>
+        
+        <div id="output-wrapper" class="output-section">
+            <label>Redacted Result</label>
+            <div id="redacted" class="output-box"></div>
+            <label>Entities</label>
+            <div id="entities" class="output-box"></div>
+        </div>
+    </div>
+
+    <script>
+        // Drag and drop functionality
+        const dropZone = document.getElementById("drop-zone");
+        const textarea = document.getElementById("text-input");
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
+        });
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+
+            if (files && files.length > 0) {
+                const file = files[0];
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    textarea.value = event.target.result;
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        async function redact() {
+            const text = document.getElementById("text-input").value;
+            const threshold = document.getElementById("threshold-input").value;
+            if (!text.trim()) return;
+            
+            const btn = document.querySelector("button");
+            const originalText = btn.innerText;
+            btn.innerText = "Processing...";
+            btn.disabled = true;
+
+            try {
+                const resp = await fetch("/demo/redact", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ text: text, threshold: threshold }),
+                });
+                
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById("redacted").innerText = data.redacted;
+                    if (data.entities && data.entities.length > 0) {
+                        document.getElementById("entities").innerHTML = data.entities.map(e =>
+                            `<span class="entity-badge">${e.label}: <strong>${e.text}</strong> <span class="score">${Math.round(e.score * 100)}%</span></span>`
+                        ).join("");
+                    } else {
+                        document.getElementById("entities").innerHTML = `<span class="no-entities">No PII entities detected.</span>`;
+                    }
+                    document.getElementById("output-wrapper").classList.add("visible");
+                    
+                } else {
+                    document.getElementById("redacted").innerText = "Error: Failed to process request.";
+                    document.getElementById("output-wrapper").classList.add("visible");
+                }
+            } catch (err) {
+                document.getElementById("redacted").innerText = "Error: Network issue or API down.";
+                document.getElementById("output-wrapper").classList.add("visible");
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

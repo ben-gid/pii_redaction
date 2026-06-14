@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Optional
 
 import torch
-from pydantic import BaseModel
 from transformers import (
     AutoModelForTokenClassification,
     AutoTokenizer,
