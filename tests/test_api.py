@@ -1,12 +1,9 @@
-import io
-import sys
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import app, _state, settings, limiter
+from src.api import app, settings, limiter
 from src.models import RedactionResponse, Entity
 
 @pytest.fixture

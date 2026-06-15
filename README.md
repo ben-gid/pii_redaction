@@ -50,14 +50,12 @@ A production-ready API that detects and redacts personally identifiable informat
   - `POST /redact` — detect and redact PII, threshold per request
   - `GET /health` — liveness check
   - `GET /model-info` — model metadata and entity types
-  - Optional API key auth via `X-API-Key` header
+  - API key auth via `X-API-Key` header
   - Model loaded once at startup via lifespan
-  - CORS enabled, structured JSON error handling
   - Swagger UI at `/docs` (and a direct shortcut button in the UI)
-  - Interactive dark-mode HTML Demo page (`GET /`) with glassmorphism layout
+  - Interactive dark-mode HTML Demo page (`GET /demo` and `POST /demo/redact`) with glassmorphism layout
   - Drag-and-drop plain text file upload to automatically populate the input text
   - Real-time entity classification unpacking with confidence score badges
-  - External static styles separated into `static/styles.css`
 
 - [ ] Phase 5 — Docker multi-stage build
 - [ ] Phase 5 — ECR push & ECS Fargate deployment
