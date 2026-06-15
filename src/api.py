@@ -16,7 +16,7 @@ import logging
 import hashlib
 import secrets
 from pathlib import Path
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -61,12 +61,13 @@ class AppState:
 _state = AppState()
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
     model_variant = settings.model_id
     threshold = settings.threshold
     logger.info(f"loading model variant {model_variant} (threshold={threshold:.2f}) ...")
     _state.redactor = PIIRedactor(model_id=model_variant)
     _state.limiter = limiter
+    _app.state.limiter = limiter  # required by slowapi's _rate_limit_exceeded_handler
     logger.info("model loaded successfully")
     yield
     
