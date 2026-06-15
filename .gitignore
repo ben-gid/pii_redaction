@@ -46,3 +46,7 @@ wandb/
 .vscode/
 .idea/
 .DS_Store
+
+
+# trial v2
+v2/

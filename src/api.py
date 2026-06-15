@@ -2,26 +2,29 @@
 PII Redaction API — FastAPI service wrapping the PII redactor.
 
 Endpoints:
+    GET  /             — redirect to GET /demo
+    POST /redact       — detect and redact PII in text
+    GET  /demo         — demo template
+    POST /demo/redact  — redact demo input text
     GET  /health       — liveness check
     GET  /model-info   — model metadata and supported entity types
-    GET  /             — demo index
-    POST /redact       — detect and redact PII in text
-    POST /demo/redact  — redact demo input text
-    GET  /Api-keys     - admin create api key
 """
 
 from __future__ import annotations
 
 import logging
+import hashlib
+import secrets
 from pathlib import Path
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request, status, Depends, Header 
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Security, HTTPException, Request, status, Depends 
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.security import APIKeyHeader
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -77,21 +80,6 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
 
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) # type: ignore[arg-type]
-
-# optional API key
-# TODO    
-_API_KEY: Optional[str] = settings.api_key
-
-async def _verify_api_key(
-    x_api_key: Optional[str] = Header(None, alias="X-API-Key")
-) -> None:
-    if _API_KEY is not None and x_api_key != _API_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing API key"
-        ) 
-
 async def run_redaction(text: str, threshold: float) -> RedactionResponse:
     if _state.redactor is None:
         raise HTTPException(
@@ -107,10 +95,48 @@ async def run_redaction(text: str, threshold: float) -> RedactionResponse:
     
     return result
 
-@app.get("/", response_class=HTMLResponse, description="serve demo html", tags=["Demo"])
+# ---------------------------------------------------------------------------
+# Security
+# ---------------------------------------------------------------------------
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler) # type: ignore[arg-type]
+
+def hash_key(api_key: str) -> str:
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+api_key_header = APIKeyHeader(name="X-API-Key")
+
+async def _verify_api_key(
+    provided_key: str = Security(api_key_header)
+) -> None:
+    if not secrets.compare_digest(provided_key, settings.api_key):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key"
+        ) 
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/", description="Redirect to demo")
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    return RedirectResponse(url="/demo")
     
+    
+@app.post("/redact", response_model=RedactionResponse, tags=["API endpoint", "PII Redaction"], 
+          dependencies=[Depends(_verify_api_key)])
+async def redact(
+    request: RedactRequest,
+):
+    return await run_redaction(request.text, request.threshold)
+
+
+@app.get("/demo", response_class=HTMLResponse, description="serve demo html", tags=["Demo", "PII Redaction"])
+async def demo(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+
     
 @app.post("/demo/redact", response_model=RedactionResponse, description="return redacted text", tags=["Demo", "PII Redaction"])
 @limiter.limit("10/day")
@@ -119,17 +145,8 @@ async def demo_redact(
     body: RedactRequest
 ):
     return await run_redaction(body.text, body.threshold)
-    
-    
-@app.post("/redact", response_model=RedactionResponse, tags=["PII Redaction"], 
-          dependencies=[Depends(_verify_api_key)])
-async def redact(
-    request: RedactRequest,
-):
-    return await run_redaction(request.text, request.threshold)
 
-
-@app.get("/health", response_model=HealthResponse, tags=["System"])
+@app.get("/health", response_model=HealthResponse, tags=["API endpoint","System"])
 async def health():
     return HealthResponse(
         status="healthy",
@@ -137,7 +154,7 @@ async def health():
     )
     
     
-@app.get("/model-info", response_model=ModelInfoResponse, tags=["System"])
+@app.get("/model-info", response_model=ModelInfoResponse, tags=["API endpoint","System"])
 async def model_info():
     """Return metadata about the currently loaded model."""
     if _state.redactor is None:
@@ -154,7 +171,3 @@ async def model_info():
         entity_types=sorted(raw_labels),
         max_length=_state.redactor.max_length,
     )
-    
-@app.post("/api-keys", tags=[""])
-async def create_key():
-    raise NotImplementedError()
