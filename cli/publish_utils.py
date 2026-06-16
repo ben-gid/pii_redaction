@@ -20,12 +20,10 @@ Learnings & Context:
 """
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Optional, Tuple, Any
 
-import numpy as np
 import torch
 from transformers import AutoModelForTokenClassification, pipeline
 

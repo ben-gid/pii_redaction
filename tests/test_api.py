@@ -1,15 +1,17 @@
+from pathlib import Path
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api import app, settings, limiter
-from src.models import RedactionResponse, Entity
+from api.app.main import app, settings, limiter
+from pii_redaction.models import RedactionResponse, Entity
 
 @pytest.fixture
 def mock_redactor():
     """Mock the PIIRedactor class to avoid loading the real model weights during testing."""
-    with patch("src.api.PIIRedactor") as mock_class:
+    with patch("api.app.config.PIIRedactor") as mock_class:
         # Configure the mock instance
         mock_instance = MagicMock()
         mock_instance.max_length = 512

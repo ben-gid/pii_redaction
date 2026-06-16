@@ -24,7 +24,7 @@ from pathlib import Path
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 from huggingface_hub import ModelCardData, ModelCard, EvalResult
 
-from publish_utils import (
+from .publish_utils import (
     benchmark,
     get_best_checkpoint,
     load_training_args,

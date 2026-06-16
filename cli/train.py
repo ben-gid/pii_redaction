@@ -43,7 +43,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from train_utils import (
+from .train_utils import (
     WeightedTokenClassificationTrainer,
     DetailedProgressCallback,
     make_compute_metrics_fn,
