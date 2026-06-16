@@ -160,8 +160,6 @@ class PIIRedactor:
             device=pipe_device,
         )
 
-        self.model.eval()
-
     def _pretokenize(self, text: str):
         """Run the fast tokenizer on the full text **without** special tokens.
 

@@ -56,6 +56,7 @@ A production-ready API that detects and redacts personally identifiable informat
   - Interactive dark-mode HTML Demo page (`GET /demo` and `POST /demo/redact`) with glassmorphism layout
   - Drag-and-drop plain text file upload to automatically populate the input text
   - Real-time entity classification unpacking with confidence score badges
+  - API unit tests for every route
 
 - [ ] Phase 5 — Docker multi-stage build
 - [ ] Phase 5 — ECR push & ECS Fargate deployment

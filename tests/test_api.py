@@ -49,6 +49,14 @@ def client(mock_redactor):
     """Create a TestClient, triggering the app lifespan events (which loads our mock redactor)."""
     with TestClient(app) as test_client:
         yield test_client
+        
+@pytest.fixture
+def auth_client(client):
+    """Client Fixture with api-key preconfigured"""
+    original_key = settings.api_key
+    settings.api_key = "secret_token_123"
+    yield client, "secret_token_123"
+    settings.api_key = original_key
 
 def test_health(client):
     """Test the health check endpoint."""
@@ -97,31 +105,23 @@ def test_redact_endpoint_missing_api_key(client):
 
 def test_redact_endpoint_invalid_api_key(client):
     """Test /redact endpoint fails with an invalid API key."""
-    # Temporarily override settings API key for test stability
-    original_api_key = settings.api_key
-    settings.api_key = "secret_token_123"
-    try:
-        payload = {"text": "My email is john@example.com", "threshold": 0.3}
-        headers = {"X-API-Key": "wrong_key"}
-        response = client.post("/redact", json=payload, headers=headers)
-        assert response.status_code == 401
-        assert response.json()["detail"] == "Invalid or missing API key"
-    finally:
-        settings.api_key = original_api_key
+    key = "invalid_key"
+    payload = {"text": "My email is john@example.com", "threshold": 0.3}
+    headers = {"X-API-Key": key}
+    response = client.post("/redact", json=payload, headers=headers)
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid or missing API key"
 
-def test_redact_endpoint_valid_api_key(client):
+
+def test_redact_endpoint_valid_api_key(auth_client):
     """Test /redact endpoint succeeds with a valid API key."""
-    original_api_key = settings.api_key
-    settings.api_key = "secret_token_123"
-    try:
-        payload = {"text": "My email is john@example.com", "threshold": 0.3}
-        headers = {"X-API-Key": "secret_token_123"}
-        response = client.post("/redact", json=payload, headers=headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["redacted"] == "My email is [EMAIL]"
-    finally:
-        settings.api_key = original_api_key
+    client, key = auth_client
+    payload = {"text": "My email is john@example.com", "threshold": 0.3}
+    headers = {"X-API-Key": key}
+    response = client.post("/redact", json=payload, headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["redacted"] == "My email is [EMAIL]"
 
 def test_demo_redact_rate_limit(client):
     """Test that /demo/redact enforces the 10/day rate limit per IP.
@@ -153,3 +153,36 @@ def test_demo_redact_rate_limit(client):
     assert response.status_code == 429, (
         f"Expected 429 Too Many Requests after limit exhausted, got {response.status_code}"
     )
+    
+
+def test_exceeds_max_length(auth_client):
+    """Test text arg exceeds 10k characters returns 422 error"""
+    client, key = auth_client
+    payload = {"text": "x" * 10_001, "threshold": 0.3}
+    headers = {"X-API-Key": key}
+    response = client.post("/redact", json=payload, headers=headers)
+    assert response.status_code == 422
+    
+def test_empty_text(auth_client):
+    """Test empty text returns 422 error"""
+    client, key = auth_client
+    payload = {"text": "", "threshold": 0.3}
+    headers = {"X-API-Key": key}
+    response = client.post("/redact", json=payload, headers=headers)
+    assert response.status_code == 422
+    
+def test_missing_text(auth_client):
+    """Test missing text arg returns 422 error"""
+    client, key = auth_client
+    payload = {"threshold": 0.3}
+    headers = {"X-API-Key": key}
+    response = client.post("/redact", json=payload, headers=headers)
+    assert response.status_code == 422
+    
+def test_missing_threshold(auth_client):
+    """Test missing threshold returns ok (200) because threshold has default"""
+    client, key = auth_client
+    payload = {"text": "x"}
+    headers = {"X-API-Key": key}
+    response = client.post("/redact", json=payload, headers=headers)
+    assert response.status_code == 200
