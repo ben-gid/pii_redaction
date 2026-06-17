@@ -21,7 +21,6 @@ CLI usage::
 
 from typing import Optional
 
-import torch
 from transformers import (
     AutoModelForTokenClassification,
     AutoTokenizer,
@@ -77,7 +76,7 @@ class PIIRedactor:
         model_id: str = "small",
         stride: float = 0.5,
         max_length: int = 512,
-        device: Optional[int] = None,
+        device: Optional[int | str] = None,
     ) -> None:
         self.stride = stride
         self.max_length = max_length
@@ -95,8 +94,6 @@ class PIIRedactor:
         pipe_device = -1
         if device is not None:
             pipe_device = device
-        elif torch.cuda.is_available():
-            pipe_device = 0
 
         # Internal pipeline uses "first" aggregation strategy, which is
         # consistent with the subword-labelling convention used during

@@ -25,6 +25,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import torch
+
 # Ensure the project root is on sys.path so that pii_redaction is importable
 # when running this script directly (e.g. `uv run python cli/redact.py`).
 _project_root = Path(__file__).resolve().parent.parent
@@ -55,6 +57,7 @@ def main() -> None:
         model_id=args.model_variant,
         stride=args.stride,
         max_length=args.max_length,
+        device= "cuda" if torch.cuda.is_available else -1
     )
 
     response = redactor.predict(text, threshold=args.threshold)
