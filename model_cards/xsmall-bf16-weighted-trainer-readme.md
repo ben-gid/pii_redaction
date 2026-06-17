@@ -21,7 +21,7 @@ model-index:
 - name: DeBERTa-v3-XSmall PII Redaction
   results:
   - task:
-      type: token-classification
+      type: token_classification
     dataset:
       name: ai4privacy/pii-masking-300k
       type: ai4privacy/pii-masking-300k
@@ -42,7 +42,6 @@ Fine-tuned [microsoft/deberta-v3-xsmall](https://huggingface.co/microsoft/debert
 **Recommended when** memory footprint is the hard constraint — 
 edge deployments, CPU inference, or environments where the 22M 
 parameter count matters more than raw latency. 
-
 #### Latency Note
 Note that despite being the smallest model, RTX 5070 latency (~11.6ms) 
 is comparable to base due to its identical 12-layer depth; sequential 
@@ -84,7 +83,8 @@ The full dataset is multilingual; this model targets English text only.
 
 ## Training Procedure
 
-Two-phase Fine-tuning (frozen backbone → unfrozen) from [`microsoft/deberta-v3-xsmall`](https://huggingface.co/microsoft/deberta-v3-xsmall) using a weighted token-classification trainer and stage-specific learning rates.
+Two-phase Fine-tuning (frozen backbone → unfrozen) from [microsoft/deberta-v3-xsmall](https://huggingface.co/microsoft/deberta-v3-xsmall) 
+using a weighted token-classification trainer and stage-specific learning rates.
 
 ### Hyperparameters
 | Parameter | Stage 1 (frozen backbone) | Stage 2 (full fine-tune) |
@@ -148,16 +148,16 @@ Evaluated on the English validation subset (3,973 examples) at the best checkpoi
 - **English only** — trained exclusively on English text; performance on other languages is undefined.
 - **Max 512 tokens** — inherited from DeBERTa's positional embeddings. Longer documents should be chunked.
 - **Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities:
-**Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities.
-Likely causes: performance correlates strongly with training support — 
-LASTNAME1/GIVENNAME1 (primary occurrences, ~900–1100 examples) score 
-significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
-105–313 examples). Additionally, names are inherently context-dependent: 
-without surrounding cues like titles or formal structure, the model has 
-less signal to distinguish them from non-PII tokens — even the 
-best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
-the macro F1 of 0.9557, suggesting names are a structurally harder 
-category regardless of support.
+
+	Likely causes: performance correlates strongly with training support — 
+	LASTNAME1/GIVENNAME1 (primary occurrences, ~900-1100 examples) score 
+	significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
+	105-313 examples). Additionally, names are inherently context-dependent: 
+	without surrounding cues like titles or formal structure, the model has 
+	less signal to distinguish them from non-PII tokens — even the 
+	best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
+	the macro F1 of 0.9425, suggesting names are a structurally harder 
+	category regardless of support.
 - **Not a redaction tool by itself** — this model detects and labels PII spans; downstream redaction/masking logic must be implemented separately.
 - **Subword labeling convention** — following the HuggingFace token classification convention, only the first subword of each word was assigned its NER label during training; continuation subwords were assigned `-100` (ignored by the loss). The practical consequence is that the model predicts `O` with high confidence on continuation subwords, which can cause partial detection of multi-subword entities (e.g. `john@example.com` returned as only `john`) when using `aggregation_strategy="simple"`. Use `aggregation_strategy="first"` for inference, which is consistent with this training convention.
 
@@ -178,8 +178,8 @@ category regardless of support.
 | Model | Macro F1 | Params (non-embedding) | Inference Speed | Best For |
 |-------|----------|------------------------|-----------------|----------|
 | [DeBERTa-v3-Base PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-base) | 0.9557 | Base (86M params) | ~11.7ms on RTX 5070 | Accuracy |
-| [DeBERTa-v3-Small PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-small) | 0.9476 | Small (44M params) | ~6.5ms on RTX 5070 | Latency |
-| [DeBERTa-v3-XSmall PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-xsmall) | 0.9303 | XSmall (22M params) | ~11.6ms on RTX 5070 [1] | Memory |
+| [DeBERTa-v3-Small PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-small) | 0.9517 | Small (44M params) | ~6.5ms on RTX 5070 | Latency |
+| [DeBERTa-v3-XSmall PII Redaction](https://huggingface.co/bengid/pii-redaction-deberta-xsmall) | 0.9424 | XSmall (22M params) | ~11.6ms on RTX 5070 [1] | Memory |
 
 [1] see [Latency Note](#latency-note) for latency explanation
 
