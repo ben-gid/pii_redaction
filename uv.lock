@@ -1794,6 +1794,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "huggingface-hub" },
     { name = "jupyter" },
+    { name = "pydantic-settings" },
     { name = "sentencepiece" },
     { name = "seqeval" },
     { name = "slowapi" },
@@ -1813,9 +1814,6 @@ docker = [
     { name = "slowapi" },
     { name = "transformers" },
 ]
-local = [
-    { name = "torch" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -1825,6 +1823,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.3" },
     { name = "huggingface-hub", specifier = ">=1.17.0" },
     { name = "jupyter", specifier = ">=1.1.1" },
+    { name = "pydantic-settings", specifier = ">=2.14.1" },
     { name = "sentencepiece", specifier = ">=0.2.1" },
     { name = "seqeval", specifier = ">=1.2.2" },
     { name = "slowapi", specifier = ">=0.1.9" },
@@ -1844,7 +1843,6 @@ docker = [
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "transformers", specifier = ">=5.9.0" },
 ]
-local = [{ name = "torch", specifier = ">=2.12.0" }]
 
 [[package]]
 name = "platformdirs"

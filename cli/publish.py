@@ -20,17 +20,22 @@ Key Lessons & Design Decisions:
 
 import argparse
 from pathlib import Path
+import sys
 
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 from huggingface_hub import ModelCardData, ModelCard, EvalResult
 
-from publish_utils import (
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
+from cli.publish_utils import (  # noqa: E402
     benchmark,
     get_best_checkpoint,
     load_training_args,
     get_first_checkpoint_args,
     make_entity_table,
-)
+) 
 
 
 # Default model configurations registry
