@@ -24,7 +24,7 @@ from pathlib import Path
 from transformers import AutoModelForTokenClassification, AutoTokenizer
 from huggingface_hub import ModelCardData, ModelCard, EvalResult
 
-from .publish_utils import (
+from publish_utils import (
     benchmark,
     get_best_checkpoint,
     load_training_args,
@@ -50,16 +50,6 @@ constraint. Best overall performance (macro F1: 0.9557), particularly
 on rare entity types. Well-suited for offline batch processing, 
 compliance pipelines, or any server-side deployment where an extra 
 ~5ms of latency is acceptable.""",
-        "worst_entities_text": """**Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities.
-Likely causes: performance correlates strongly with training support — 
-LASTNAME1/GIVENNAME1 (primary occurrences, ~900–1100 examples) score 
-significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
-105–313 examples). Additionally, names are inherently context-dependent: 
-without surrounding cues like titles or formal structure, the model has 
-less signal to distinguish them from non-PII tokens — even the 
-best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
-the macro F1 of 0.9557, suggesting names are a structurally harder 
-category regardless of support."""
     },
     {
         "dir_name": "small-bf16-weighted-trainer",
@@ -67,7 +57,7 @@ category regardless of support."""
         "model_name": "DeBERTa-v3-Small PII Redaction",
         "base_model": "microsoft/deberta-v3-small",
         "size_label": "Small (44M params)",
-        "macro_f1": 0.9476,
+        "macro_f1": 0.9517,
         "inference_speed_label": "~6.5ms on RTX 5070",
         "best_for": "Latency",
         "recommendation": """
@@ -76,16 +66,6 @@ tradeoff. Despite being 44M parameters, its 6-layer architecture
 makes it the fastest of the three (~6.5ms on RTX 5070) — nearly 2x faster 
 than base while retaining strong performance. 
 Best fit for real-time APIs or high-throughput services.""",
-        "worst_entities_text": """**Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities.
-Likely causes: performance correlates strongly with training support — 
-LASTNAME1/GIVENNAME1 (primary occurrences, ~900–1100 examples) score 
-significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
-105–313 examples). Additionally, names are inherently context-dependent: 
-without surrounding cues like titles or formal structure, the model has 
-less signal to distinguish them from non-PII tokens — even the 
-best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
-the macro F1 of 0.9557, suggesting names are a structurally harder 
-category regardless of support."""
     },
     {
         "dir_name": "xsmall-bf16-weighted-trainer",
@@ -93,7 +73,7 @@ category regardless of support."""
         "model_name": "DeBERTa-v3-XSmall PII Redaction",
         "base_model": "microsoft/deberta-v3-xsmall",
         "size_label": "XSmall (22M params)",
-        "macro_f1": 0.9303,
+        "macro_f1": 0.9424,
         "inference_speed_label": "~11.6ms on RTX 5070 [1]",
         "best_for": "Memory",
         "recommendation": """
@@ -106,16 +86,6 @@ Note that despite being the smallest model, RTX 5070 latency (~11.6ms)
 is comparable to base due to its identical 12-layer depth; sequential 
 layer passes dominate GPU latency more than hidden dimension width. The 
 advantage over base is memory, not speed.""",
-        "worst_entities_text": """**Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities.
-Likely causes: performance correlates strongly with training support — 
-LASTNAME1/GIVENNAME1 (primary occurrences, ~900–1100 examples) score 
-significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
-105–313 examples). Additionally, names are inherently context-dependent: 
-without surrounding cues like titles or formal structure, the model has 
-less signal to distinguish them from non-PII tokens — even the 
-best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
-the macro F1 of 0.9557, suggesting names are a structurally harder 
-category regardless of support."""
     },
 ]
 
@@ -317,7 +287,16 @@ Evaluated on the English validation subset (3,973 examples) at the best checkpoi
 - **English only** — trained exclusively on English text; performance on other languages is undefined.
 - **Max 512 tokens** — inherited from DeBERTa's positional embeddings. Longer documents should be chunked.
 - **Name entities are harder** — The model underperforms on `GIVENNAME` and `LASTNAME` entities:
-{model_cfg["worst_entities_text"]}
+    
+    Likely causes: performance correlates strongly with training support — 
+    LASTNAME1/GIVENNAME1 (primary occurrences, ~900-1100 examples) score 
+    significantly higher than LASTNAME2/3 (secondary/tertiary occurrences, 
+    105-313 examples). Additionally, names are inherently context-dependent: 
+    without surrounding cues like titles or formal structure, the model has 
+    less signal to distinguish them from non-PII tokens — even the 
+    best-supported name entities (LASTNAME1, GIVENNAME1) fall notably below 
+    the macro F1 of {f1:.4f}, suggesting names are a structurally harder 
+    category regardless of support.
 - **Not a redaction tool by itself** — this model detects and labels PII spans; downstream redaction/masking logic must be implemented separately.
 - **Subword labeling convention** — following the HuggingFace token classification convention, only the first subword of each word was assigned its NER label during training; continuation subwords were assigned `-100` (ignored by the loss). The practical consequence is that the model predicts `O` with high confidence on continuation subwords, which can cause partial detection of multi-subword entities (e.g. `john@example.com` returned as only `john`) when using `aggregation_strategy="simple"`. Use `aggregation_strategy="first"` for inference, which is consistent with this training convention.
 
