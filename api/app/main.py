@@ -7,7 +7,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from pathlib import Path
 
-from .config import settings, _state
+from .config import settings, state
 from .dependencies import limiter
 from .routers import redact, demo, system
 
@@ -16,11 +16,11 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(f"Loading model {settings.model_id} (threshold={settings.threshold:.2f}) ...")
-    _state.load(settings)
+    state.load(settings)
     app.state.limiter = limiter
     logger.info("Model loaded.")
     yield
-    _state.clear()
+    state.clear()
 
 app = FastAPI(
     title="PII Redaction API",

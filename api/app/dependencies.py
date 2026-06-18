@@ -4,13 +4,13 @@ import sys
 from fastapi import Security, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 from slowapi import Limiter
-from .config import settings, _state
+from .config import settings, state
 # Ensure the project root is on sys.path so that pii_redaction is importable
 _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from pii_redaction.models import RedactionResponse
+from pii_redaction.models import RedactionResponse  # noqa: E402
 
 
 def get_ip(request: Request) -> str:
@@ -27,9 +27,9 @@ async def verify_api_key(provided_key: str = Security(api_key_header)) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API key")
 
 async def run_redaction(text: str, threshold: float) -> RedactionResponse:
-    if _state.redactor is None:
+    if state.redactor is None:
         raise HTTPException(status_code=503, detail="Redactor not loaded")
     try:
-        return _state.redactor.predict(text, threshold)
+        return state.redactor.predict(text, threshold)
     except Exception:
         raise HTTPException(status_code=500, detail="Redaction failed during inference")

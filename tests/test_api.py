@@ -3,7 +3,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from api.app.main import app, settings, limiter
+from api.app.main import app, settings, limiter, state
+from api.app.config import AppSettings, AppState
 from pii_redaction.models import RedactionResponse, Entity
 
 @pytest.fixture
@@ -46,10 +47,11 @@ def mock_redactor():
 
 @pytest.fixture
 def client(mock_redactor):
-    """Create a TestClient, triggering the app lifespan events (which loads our mock redactor)."""
+    """Create a TestClient, triggering the app lifespan events 
+    (which loads our mock redactor)."""
     with TestClient(app) as test_client:
         yield test_client
-        
+   
 @pytest.fixture
 def auth_client(client):
     """Client Fixture with api-key preconfigured"""
@@ -57,6 +59,31 @@ def auth_client(client):
     settings.api_key = "secret_token_123"
     yield client, "secret_token_123"
     settings.api_key = original_key
+    
+def test_settings_defaults():
+    s = AppSettings()
+    assert s.model_id == "bengid/pii-redaction-deberta-small"
+    assert s.threshold == 0.85
+    assert s.api_key != "changeme", "expected api-key to be" 
+    "changed to .env variable by default"
+
+def test_settings_env_override():
+    with patch.dict("os.environ", {"MODEL_ID": "other-model", "THRESHOLD": "0.9"}):
+        s = AppSettings()
+        assert s.model_id == "other-model"
+        assert s.threshold == 0.9
+        
+def test_state_starts_empty():
+    state = AppState()
+    assert state.redactor is None
+
+def test_state_load(client):
+    assert state.redactor is not None
+
+def test_state_clear(mock_redactor):
+    with TestClient(app) as test_client:
+        assert state.redactor is not None
+    assert state.redactor is None
 
 def test_health(client):
     """Test the health check endpoint."""
@@ -111,7 +138,6 @@ def test_redact_endpoint_invalid_api_key(client):
     response = client.post("/redact", json=payload, headers=headers)
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid or missing API key"
-
 
 def test_redact_endpoint_valid_api_key(auth_client):
     """Test /redact endpoint succeeds with a valid API key."""

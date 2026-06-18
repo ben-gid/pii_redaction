@@ -41,3 +41,6 @@ pythonpath = ["."]
 
 [tool.pyright]
 extraPaths = ["."]
+
+[tool.ruff.lint.per-file-ignores]
+"notebooks/*" = ["ALL"] # Ignore notebooks for now as they are experimental

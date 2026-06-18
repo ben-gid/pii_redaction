@@ -27,4 +27,4 @@ class AppState:
         self.redactor = None
 
 settings = AppSettings()
-_state = AppState()
+state = AppState()

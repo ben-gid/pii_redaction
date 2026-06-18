@@ -50,3 +50,4 @@ wandb/
 
 # trial v2
 v2/
+.aider*

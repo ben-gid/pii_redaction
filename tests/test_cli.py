@@ -168,7 +168,7 @@ class TestWeightedTokenClassificationTrainer:
                 mock_loss = MagicMock()
                 mock_loss_cls.return_value = mock_loss
 
-                loss = trainer.compute_loss(mock_model, inputs)
+                _ = trainer.compute_loss(mock_model, inputs)
 
                 mock_loss_cls.assert_called_once_with(
                     weight=weights.to.return_value, ignore_index=-100
