@@ -10,7 +10,7 @@ WORKDIR /app
 COPY pyproject.toml ./
 
 # Sync API deps - no torch yet
-RUN uv sync --only-group docker --no-install-project
+RUN uv sync --frozen --only-group docker --no-install-project
 
 # Install CPU torch directly, overriding any CUDA version
 RUN uv pip install torch \
@@ -26,4 +26,5 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-CMD ["uv", "run", "fastapi", "run", "api/app/main.py", "--host", "0.0.0.0", "--port", "8000"]
+# add --no-sync so uv doesn't install default project dependencies
+CMD ["uv", "run", "--no-sync", "fastapi", "run", "api/app/main.py", "--host", "0.0.0.0", "--port", "8000"]
