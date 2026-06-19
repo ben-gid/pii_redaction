@@ -24,6 +24,7 @@ dependencies = [
 [dependency-groups]
 # Dev tooling
 dev = [
+    "pyright>=1.1.410",
     "pytest>=9.1.0",
     "ruff>=0.15.17",
 ]

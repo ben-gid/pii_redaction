@@ -7,10 +7,12 @@ from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 from pathlib import Path
 
-from .config import settings, state
+from .core.config import settings, state
+from .core.logging import setup_logging
 from .dependencies import limiter
 from .routers import redact, demo, system
 
+setup_logging()
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException
-from ..config import state
+from ..core.config import state
 from ..models import HealthResponse, ModelInfoResponse
 
 router = APIRouter()

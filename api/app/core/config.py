@@ -3,7 +3,7 @@ import sys
 from typing import Optional
 from pydantic_settings import BaseSettings
 
-_project_root = Path(__file__).resolve().parent.parent.parent
+_project_root = Path(__file__).resolve().parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
@@ -12,7 +12,7 @@ from pii_redaction.redactor import PIIRedactor  # noqa: E402
 class AppSettings(BaseSettings):
     model_id: str = "bengid/pii-redaction-deberta-small"
     threshold: float = 0.85
-    api_key: str = "changeme"
+    api_key: str = ""
 
     class Config:
         env_file = ".env"
