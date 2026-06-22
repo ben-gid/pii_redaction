@@ -53,4 +53,10 @@ v2/
 
 # aws
 .aws
+
+# hey test that contains api key
+test_api_with_hey*
+testBody.json
+
+# temporary: not ready yet
 .github

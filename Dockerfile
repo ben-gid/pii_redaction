@@ -27,4 +27,4 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # add --no-sync so uv doesn't install default project dependencies
-CMD ["uv", "run", "--no-sync", "fastapi", "run", "api/app/main.py", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "--no-sync", "python", "-m", "api.app.main"]
