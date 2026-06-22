@@ -72,6 +72,7 @@ body {
     font-size: 1.25rem;
     font-weight: 700;
     background: var(--primary-gradient);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -141,7 +142,6 @@ h1 {
     font-weight: 700;
     margin: 0;
     background: var(--primary-gradient);
-    -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     letter-spacing: -0.025em;
 }
@@ -277,9 +277,6 @@ button:active {
 #threshold-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
-}
-#threshold-input {
-    -moz-appearance: textfield;
 }
 
 .output-section {
