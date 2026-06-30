@@ -1,4 +1,3 @@
-import os
 from api.app.main import state
 from pii_redaction.models import RedactionResponse
 
