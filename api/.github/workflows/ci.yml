@@ -1,0 +1,36 @@
+name: CI
+
+on: 
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+            
+      - name: set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Run ruff
+        run: uv run ruff check
+
+      - name: Run pyright
+        run: uv run pyright
+
+      - name: Run pytest
+        run: uv run pytest tests/ -v
