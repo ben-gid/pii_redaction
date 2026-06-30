@@ -38,6 +38,7 @@ models/
 # --- Notebooks & Experiments ---
 .ipynb_checkpoints
 .pytest_cache/
+.ruff_cache
 mlruns/
 lightning_logs/
 wandb/
