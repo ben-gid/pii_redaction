@@ -2,7 +2,7 @@
 
 A production-ready API that detects and redacts personally identifiable information from text before it enters an LLM pipeline.
 
-**Stack:** DeBERTa-v3 · HuggingFace Trainer · FastAPI · Docker · AWS ECS Fargate · HuggingFace Spaces
+**Stack:** DeBERTa-v3 · HuggingFace Trainer · FastAPI · Docker · AWS ECS Fargate · HuggingFace
 
 ---
 
@@ -58,8 +58,8 @@ A production-ready API that detects and redacts personally identifiable informat
   - Real-time entity classification unpacking with confidence score badges
   - API unit tests for every route
 
-- [ ] Phase 5 — Docker multi-stage build
-- [ ] Phase 5 — ECR push & ECS Fargate deployment
+- [x] Phase 5 — Docker build
+- [x] Phase 5 — ECR push & ECS Fargate deployment
 - [ ] Phase 6 — HuggingFace Spaces Gradio demo with `gr.HighlightedText`
 - [ ] Architecture diagram for README
 - [ ] `/pseudonymize` endpoint (consistent fake value replacement)

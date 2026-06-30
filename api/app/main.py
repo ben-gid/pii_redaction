@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
@@ -10,7 +11,7 @@ import uvicorn
 
 from .core.config import settings, state
 from .core.logging_setup import build_logging_config, setup_logging, RequestLoggingMiddleware
-from .dependencies import limiter
+from .dependencies import limiter, fetch_and_write_cert
 from .routers import redact, demo, system
 
 logger = setup_logging()
@@ -41,9 +42,20 @@ app.include_router(demo.router)
 app.include_router(system.router)
 
 if __name__ == "__main__":
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        log_config=build_logging_config(),
-    )
+    if os.environ.get("ENV") == "production":
+        cert_path, key_path = fetch_and_write_cert()
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=8000, 
+            ssl_certfile=cert_path, 
+            ssl_keyfile=key_path
+        )
+        
+    else:
+        uvicorn.run(
+            app,
+            host="0.0.0.0",
+            port=8000,
+            log_config=build_logging_config(),
+        )
