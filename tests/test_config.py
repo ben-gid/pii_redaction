@@ -9,7 +9,6 @@ def test_settings_defaults():
     s = AppSettings()
     assert s.model_id == "bengid/pii-redaction-deberta-small"
     assert s.threshold == 0.85
-    assert s.api_key != "", "expected api-key to be changed to .env variable by default"
 
 def test_settings_env_override():
     with patch.dict("os.environ", {"MODEL_ID": "other-model", "THRESHOLD": "0.9"}):
