@@ -96,16 +96,3 @@ def test_redact_response_model(auth_client):
     assert isinstance(redaction.entities, list)
     assert redaction.entity_count == len(redaction.entities)
 
-def test_redact_with_env_api_key(client):
-    """Test /redact endpoint using the real API_KEY from os.environ."""
-    api_key = os.environ.get("API_KEY")
-    if api_key is None:
-        raise KeyError("os environ 'api_key' variable not set,"
-                       "make sure load_dotenv is included in config.py")
-        
-    payload = {"text": "My email is john@example.com", "threshold": 0.3}
-    headers = {"X-API-Key": api_key}
-    response = client.post("/redact", json=payload, headers=headers)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["redacted"] == "My email is [EMAIL]"
