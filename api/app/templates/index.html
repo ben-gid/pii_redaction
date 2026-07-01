@@ -1,8 +1,20 @@
 {% extends "layout.html" %}
 
 {% block content %}
+
 <div class="container">
-    <p>Enter sensitive text below to detect and redact personally identifiable information.</p>
+    <div class="title">PII Redaction Demo</div>
+    <p class="subtitle">Enter sensitive text below to detect and redact personally identifiable information.</p>
+
+    <div class="examples-container">
+        <div class="examples-label">Try an Example</div>
+        <div class="example-chips">
+            <button type="button" class="secondary-btn" onclick="applyExample(0)">Address & Location</button>
+            <button type="button" class="secondary-btn" onclick="applyExample(1)">Medical Record</button>
+            <button type="button" class="secondary-btn" onclick="applyExample(2)">System Admin Log</button>
+            <button type="button" class="secondary-btn" onclick="applyExample(3)">Travel Details</button>
+        </div>
+    </div>
     
     <label for="text-input">Input Text</label>
     <div class="textarea-container" id="drop-zone">
@@ -29,7 +41,7 @@
 
     <div id="error-wrapper" class="output-section" role="alert">
         <div id="error-container" class="output-box error-message"></div>
-    <div>
+    </div>
 </div>
 {% endblock %}
 
@@ -38,6 +50,27 @@
     // Drag and drop functionality
     const dropZone = document.getElementById("drop-zone");
     const textarea = document.getElementById("text-input");
+    const clearBtn = document.getElementById("clear-btn");
+
+    const PRESETS = [
+        "She lives at 742 Evergreen Terrace, Springfield, IL 62704.",
+        "Patient Alice Smith, born on November 14, 1992 (SSN: 987-65-4321), can be reached at 555-019-2834 or via email at alice.smith92@example.com.",
+        "Admin John Doe (username: jdoe88) logged in from IP address 192.168.1.45 at 14:32:10 on 2026-06-30 using password 'P@ssw0rd123!'.",
+        "Dr. Elizabeth Montgomery (Passport: A1234567, Driver License: DL-998822-X) travels to the United States on Flight UA872 at 09:00 AM."
+    ];
+
+    function applyExample(index) {
+        if (index >= 0 && index < PRESETS.length) {
+            textarea.value = PRESETS[index];
+            clearBtn.style.display = "inline-flex";
+            document.getElementById("output-wrapper").classList.remove("visible");
+            document.getElementById("error-wrapper").classList.remove("visible");
+        }
+    }
+
+    textarea.addEventListener("input", () => {
+        clearBtn.style.display = textarea.value.trim() ? "inline-flex" : "none";
+    });
 
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
         dropZone.addEventListener(eventName, preventDefaults, false);
@@ -68,6 +101,7 @@
             const reader = new FileReader();
             reader.onload = function(event) {
                 textarea.value = event.target.result;
+                clearBtn.style.display = textarea.value.trim() ? "inline-flex" : "none";
             };
             reader.readAsText(file);
         }
@@ -142,8 +176,10 @@
         URL.revokeObjectURL(url);
     }
     function clearText() {
-        textarea = document.getElementById("text-input")
-        textarea.value = ""
+        textarea.value = "";
+        clearBtn.style.display = "none";
+        document.getElementById("output-wrapper").classList.remove("visible");
+        document.getElementById("error-wrapper").classList.remove("visible");
     }
 </script>
 {% endblock %}
