@@ -3,6 +3,10 @@ name: CD
 on: 
   push:
     branches: [main]
+    paths-ignore:
+    - '**.md'
+    - 'notebooks/**'
+    - 'cli/**'
 
 permissions:
   id-token: write
