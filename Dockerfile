@@ -23,7 +23,6 @@ COPY api/ api/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV ENV=production
 
 EXPOSE 8000
 
