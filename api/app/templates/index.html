@@ -1,185 +1,185 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<section class="hero">
+    <h1>Find the <span class="redactable">personal data</span> in any text.</h1>
+    <p class="lede">Paste something in. The model flags names, emails, phone numbers and other identifiers, then swaps each one for a typed placeholder.</p>
+</section>
 
-<div class="container">
-    <div class="title">PII Redaction Demo</div>
-    <p class="subtitle">Enter sensitive text below to detect and redact personally identifiable information.</p>
-
-    <div class="examples-container">
-        <div class="examples-label">Try an Example</div>
-        <div class="example-chips">
-            <button type="button" class="secondary-btn" onclick="applyExample(0)">Address & Location</button>
-            <button type="button" class="secondary-btn" onclick="applyExample(1)">Medical Record</button>
-            <button type="button" class="secondary-btn" onclick="applyExample(2)">System Admin Log</button>
-            <button type="button" class="secondary-btn" onclick="applyExample(3)">Travel Details</button>
+<form class="panel" id="redact-form" autocomplete="off">
+    <div class="field">
+        <label for="text-input">Text to check</label>
+        <div class="textarea-wrap" id="drop-zone">
+            <textarea id="text-input" maxlength="10000" placeholder="Paste or type text here. On a desktop you can also drop a .txt file."></textarea>
+            <div class="drop-overlay" aria-hidden="true">Drop to load the file</div>
         </div>
     </div>
-    
-    <label for="text-input">Input Text</label>
-    <div class="textarea-container" id="drop-zone">
-        <textarea id="text-input" placeholder="Type, paste, or drop a text file (.txt, .md, etc.) here..."></textarea>
-        <div class="drop-overlay">Drop file to load text</div>
-    </div>
-    
-    <div class="controls-row">
-        <div class="input-group">
+
+    <div class="controls">
+        <div class="field field-threshold">
             <label for="threshold-input">Threshold</label>
-            <input type="number" id="threshold-input" min="0" max="1" step="0.01" value="0.3" placeholder="Threshold">
+            <input type="number" id="threshold-input" min="0" max="1" step="0.01" value="0.3" inputmode="decimal" required aria-describedby="threshold-hint">
         </div>
-        <button id="clear-btn" class="secondary-btn" style="display: none;" onclick="clearText()">clear</button>
-        <button id="download-json-btn" class="secondary-btn" style="display: none;" onclick="downloadJSON()">Download JSON</button>
-        <button id="redact-btn" onclick="redact()">Redact Text</button>
-    </div>
-    
-    <div id="output-wrapper" class="output-section">
-        <label>Redacted Result</label>
-        <div id="redacted" class="output-box"></div>
-        <label>Entities</label>
-        <div id="entities" class="output-box"></div>
-    </div>
+        <p class="hint" id="threshold-hint">0 to 1. Lower catches more, and flags more false positives.</p>
 
-    <div id="error-wrapper" class="output-section" role="alert">
-        <div id="error-container" class="output-box error-message"></div>
+        <div class="actions">
+            <button type="button" id="file-btn" class="btn btn-quiet">Load a file</button>
+            <input type="file" id="file-input" accept="text/*,.txt,.md,.csv,.json,.log" hidden>
+            <button type="button" id="clear-btn" class="btn btn-quiet" hidden>Clear</button>
+            <button type="button" id="download-json-btn" class="btn btn-quiet" hidden>Download JSON</button>
+            <button type="submit" id="redact-btn" class="btn btn-primary">Redact text</button>
+        </div>
     </div>
-</div>
+</form>
+
+<section id="output-wrapper" class="results" aria-live="polite" hidden>
+    <div class="result-block">
+        <h2>Redacted text</h2>
+        <div id="redacted" class="output"></div>
+    </div>
+    <div class="result-block">
+        <h2>Detected <span id="entity-count" class="count"></span></h2>
+        <div id="entities"></div>
+    </div>
+</section>
+
+<div id="error-container" class="notice" role="alert" hidden></div>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    // Drag and drop functionality
+    const form = document.getElementById("redact-form");
     const dropZone = document.getElementById("drop-zone");
     const textarea = document.getElementById("text-input");
+    const thresholdInput = document.getElementById("threshold-input");
+    const redactBtn = document.getElementById("redact-btn");
     const clearBtn = document.getElementById("clear-btn");
+    const downloadBtn = document.getElementById("download-json-btn");
+    const fileInput = document.getElementById("file-input");
+    const output = document.getElementById("output-wrapper");
+    const errorBox = document.getElementById("error-container");
 
-    const PRESETS = [
-        "She lives at 742 Evergreen Terrace, Springfield, IL 62704.",
-        "Patient Alice Smith, born on November 14, 1992 (SSN: 987-65-4321), can be reached at 555-019-2834 or via email at alice.smith92@example.com.",
-        "Admin John Doe (username: jdoe88) logged in from IP address 192.168.1.45 at 14:32:10 on 2026-06-30 using password 'P@ssw0rd123!'.",
-        "Dr. Elizabeth Montgomery (Passport: A1234567, Driver License: DL-998822-X) travels to the United States on Flight UA872 at 09:00 AM."
-    ];
+    let lastResult = null;
 
-    function applyExample(index) {
-        if (index >= 0 && index < PRESETS.length) {
-            textarea.value = PRESETS[index];
-            clearBtn.style.display = "inline-flex";
-            document.getElementById("output-wrapper").classList.remove("visible");
-            document.getElementById("error-wrapper").classList.remove("visible");
+    const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+    function loadFile(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            textarea.value = e.target.result;
+            syncClearButton();
+        };
+        reader.onerror = () => showError("That file could not be read. Try a plain text file.");
+        reader.readAsText(file);
+    }
+
+    // Drag and drop (desktop only; the Load a file button covers everything else)
+    ["dragenter", "dragover", "dragleave", "drop"].forEach((name) => {
+        dropZone.addEventListener(name, (e) => { e.preventDefault(); e.stopPropagation(); });
+        document.body.addEventListener(name, (e) => e.preventDefault());
+    });
+    ["dragenter", "dragover"].forEach((name) =>
+        dropZone.addEventListener(name, () => dropZone.classList.add("is-dragover")));
+    ["dragleave", "drop"].forEach((name) =>
+        dropZone.addEventListener(name, () => dropZone.classList.remove("is-dragover")));
+
+    dropZone.addEventListener("drop", (e) => {
+        if (e.dataTransfer.files.length) loadFile(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById("file-btn").addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+        if (fileInput.files.length) loadFile(fileInput.files[0]);
+        fileInput.value = "";
+    });
+
+    function syncClearButton() {
+        clearBtn.hidden = textarea.value.length === 0;
+    }
+    textarea.addEventListener("input", syncClearButton);
+
+    clearBtn.addEventListener("click", () => {
+        textarea.value = "";
+        lastResult = null;
+        output.hidden = true;
+        errorBox.hidden = true;
+        downloadBtn.hidden = true;
+        syncClearButton();
+        textarea.focus();
+    });
+
+    function showError(message) {
+        errorBox.textContent = message;
+        errorBox.hidden = false;
+        output.hidden = true;
+    }
+
+    function render(data) {
+        document.getElementById("redacted").innerHTML =
+            esc(data.redacted).replace(/\[([A-Z0-9_]+)\]/g, '<mark class="ph">$1</mark>');
+
+        const entities = data.entities || [];
+        document.getElementById("entity-count").textContent = entities.length;
+        document.getElementById("entities").innerHTML = entities.length
+            ? entities.map((e) => `
+                <div class="entity">
+                    <span class="entity-label">${esc(e.label)}</span>
+                    <span class="entity-text">${esc(e.text)}</span>
+                    <span class="entity-score">${Math.round(e.score * 100)}%</span>
+                </div>`).join("")
+            : '<p class="empty">Nothing above this threshold. Lower it to catch more.</p>';
+
+        errorBox.hidden = true;
+        output.hidden = false;
+        downloadBtn.hidden = false;
+    }
+
+    form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!textarea.value.trim()) {
+            showError("Add some text to check first.");
+            textarea.focus();
+            return;
         }
-    }
 
-    textarea.addEventListener("input", () => {
-        clearBtn.style.display = textarea.value.trim() ? "inline-flex" : "none";
-    });
-
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, preventDefaults, false);
-        document.body.addEventListener(eventName, preventDefaults, false);
-    });
-
-    function preventDefaults(e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
-
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
-    });
-
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
-    });
-
-    dropZone.addEventListener('drop', handleDrop, false);
-
-    function handleDrop(e) {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-
-        if (files && files.length > 0) {
-            const file = files[0];
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                textarea.value = event.target.result;
-                clearBtn.style.display = textarea.value.trim() ? "inline-flex" : "none";
-            };
-            reader.readAsText(file);
-        }
-    }
-
-    let lastRedactionResult = null;
-
-    async function redact() {
-        const text = document.getElementById("text-input").value;
-        const threshold = document.getElementById("threshold-input").value;
-        if (!text.trim()) return;
-        
-        const btn = document.getElementById("redact-btn");
-        const downloadBtn = document.getElementById("download-json-btn");
-        const originalText = btn.innerText;
-        btn.innerText = "Redacting...";
-        btn.disabled = true;
-        downloadBtn.style.display = "none";
-        lastRedactionResult = null;
+        redactBtn.textContent = "Redacting…";
+        redactBtn.disabled = true;
+        downloadBtn.hidden = true;
+        lastResult = null;
 
         try {
             const resp = await fetch("/demo/redact", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ text: text, threshold: threshold }),
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: textarea.value, threshold: Number(thresholdInput.value) }),
             });
-            
+
             if (resp.ok) {
-                const data = await resp.json();
-                lastRedactionResult = data;
-                document.getElementById("redacted").innerText = data.redacted;
-                if (data.entities && data.entities.length > 0) {
-                    document.getElementById("entities").innerHTML = data.entities.map(e =>
-                        `<span class="entity-badge">${e.label}: <strong>${e.text}</strong> <span class="score">${Math.round(e.score * 100)}%</span></span>`
-                    ).join("");
-                } else {
-                    document.getElementById("entities").innerHTML = `<span class="no-entities">No PII entities detected.</span>`;
-                }
-                document.getElementById("output-wrapper").classList.add("visible");
-                downloadBtn.style.display = "inline-flex";
-                
+                lastResult = await resp.json();
+                render(lastResult);
+            } else if (resp.status === 429) {
+                showError("Daily limit reached. The demo allows 10 redactions a day — try again tomorrow, or run the API yourself.");
             } else {
-                if (resp.status == 429) {
-                    document.getElementById("error-container").innerText = "Limit Reached: try again in 24 hours.";
-                }
-                else {
-                    document.getElementById("error-container").innerText = "Error: Failed to process request.";
-                }
-                document.getElementById("error-wrapper").classList.add("visible");
+                showError("The request failed (" + resp.status + "). Check the text and try again.");
             }
         } catch (err) {
-            document.getElementById("error-container").innerText = "Error: Network issue or API down.";
-            document.getElementById("error-wrapper").classList.add("visible");
+            showError("Can't reach the API. Check your connection and try again.");
         } finally {
-            btn.innerText = originalText;
-            btn.disabled = false;
+            redactBtn.textContent = "Redact text";
+            redactBtn.disabled = false;
         }
-    }
+    });
 
-    function downloadJSON() {
-        if (!lastRedactionResult) return;
-        const blob = new Blob([JSON.stringify(lastRedactionResult, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
+    downloadBtn.addEventListener("click", () => {
+        if (!lastResult) return;
+        const url = URL.createObjectURL(new Blob([JSON.stringify(lastResult, null, 2)], { type: "application/json" }));
         const a = document.createElement("a");
         a.href = url;
         a.download = "pii_redacted_result.json";
-        document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    }
-    function clearText() {
-        textarea.value = "";
-        clearBtn.style.display = "none";
-        document.getElementById("output-wrapper").classList.remove("visible");
-        document.getElementById("error-wrapper").classList.remove("visible");
-    }
+    });
+
+    syncClearButton();
 </script>
 {% endblock %}
