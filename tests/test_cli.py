@@ -175,6 +175,25 @@ class TestWeightedTokenClassificationTrainer:
                 )
                 mock_loss.assert_called_once()
 
+    def test_compute_loss_is_a_mean_regardless_of_num_items_in_batch(self):
+        import torch
+        from torch import nn
+
+        with patch("cli.train_utils.Trainer.__init__", return_value=None):
+            from cli.train_utils import WeightedTokenClassificationTrainer
+
+            trainer = WeightedTokenClassificationTrainer(class_weights=None)
+
+            logits = torch.randn(2, 4, 3)
+            labels = torch.tensor([[0, 1, 2, -100], [1, -100, 0, 2]])
+            model = MagicMock(training=True, return_value={"logits": logits})
+
+            expected = nn.CrossEntropyLoss(ignore_index=-100)(logits.view(-1, 3), labels.view(-1))
+            loss = trainer.compute_loss(model, {"labels": labels}, num_items_in_batch=6)
+
+            assert isinstance(loss, torch.Tensor)
+            assert torch.allclose(loss, expected)
+
     def test_compute_loss_without_labels_returns_model_loss(self):
         with patch("cli.train_utils.Trainer.__init__", return_value=None):
             from cli.train_utils import WeightedTokenClassificationTrainer
@@ -304,6 +323,44 @@ class TestMakeComputeMetricsFn:
             assert result["accuracy"] == 0.95
             assert result["EMAIL_f1"] == 0.92
             assert result["EMAIL_support"] == 100
+
+    def test_batches_accumulate_until_compute_result(self):
+        """batch_eval_metrics feeds one batch at a time; every sequence must reach
+        seqeval exactly once, and nothing may leak into the next evaluation."""
+        with patch("cli.train_utils.evaluate.load") as mock_eval_load:
+            from cli.train_utils import make_compute_metrics_fn
+
+            mock_seqeval = MagicMock()
+            mock_seqeval.compute.return_value = {
+                "overall_precision": 0.9, "overall_recall": 0.85,
+                "overall_f1": 0.87, "overall_accuracy": 0.95,
+            }
+            mock_eval_load.return_value = mock_seqeval
+
+            fn = make_compute_metrics_fn({0: "O", 1: "B-EMAIL", 2: "I-EMAIL"})
+
+            def batch(pred_id, label_id):
+                p = MagicMock()
+                logits = [0.0, 0.0, 0.0]
+                logits[pred_id] = 1.0
+                p.predictions = [[logits, [1.0, 0.0, 0.0]]]
+                p.label_ids = [[label_id, -100]]  # -100 token must be dropped
+                return p
+
+            assert fn(batch(1, 1), compute_result=False) == {}
+            assert fn(batch(0, 2), compute_result=False) == {}
+            mock_seqeval.compute.assert_not_called()
+
+            result = fn(batch(1, 1), compute_result=True)
+            assert result["f1"] == 0.87
+            mock_seqeval.compute.assert_called_once_with(
+                predictions=[["B-EMAIL"], ["O"], ["B-EMAIL"]],
+                references=[["B-EMAIL"], ["I-EMAIL"], ["B-EMAIL"]],
+            )
+
+            # a second evaluation starts from empty accumulators
+            fn(batch(1, 1), compute_result=True)
+            assert mock_seqeval.compute.call_args.kwargs["predictions"] == [["B-EMAIL"]]
 
 
 class TestTokenizeAndAlignLabels:
@@ -490,7 +547,9 @@ class TestPrepareDsParseArgs:
             from cli.prepare_ds import parse_args
 
             args = parse_args()
-            assert args.dataset_name == "ai4privacy/pii-masking-300k"
+            assert args.dataset == "ai4privacy"
+            # resolved from the DATASETS registry in main(), not by argparse
+            assert args.dataset_name is None
             assert args.output_dir is None
             assert args.rare_threshold == 50
 
@@ -529,6 +588,8 @@ class TestTrainParseArgs:
             assert args.stage2_epochs == 10
             assert args.stage2_lr == 2e-5
             assert args.batch_size == 16
+            assert args.stage1_batch_size is None  # falls back to batch_size in main()
+            assert args.run_name is None  # derived from variant + dataset in main()
             assert args.wandb_project == "pii-redaction"
             assert args.no_wandb is False
 
@@ -558,6 +619,45 @@ class TestTrainParseArgs:
 
             with pytest.raises(SystemExit):
                 parse_args()
+
+
+# ===========================================================================
+# cli/sweep.py
+# ===========================================================================
+
+
+class TestSweepRuns:
+    # transcribed from the hyperparameter tables in model_cards/*-readme.md
+    CARD_HYPERPARAMS = {
+        "xsmall": {"stage1_batch_size": 32, "batch_size": 16, "stage1_lr": 1e-3, "stage2_lr": 2e-5},
+        "small": {"stage1_batch_size": 32, "batch_size": 16, "stage1_lr": 1e-3, "stage2_lr": 2e-5},
+        "base": {"stage1_batch_size": 32, "batch_size": 8, "stage1_lr": 1e-3, "stage2_lr": 2e-5},
+    }
+
+    def test_card_runs_match_published_model_cards(self):
+        from cli.sweep import RUNS
+
+        for variant, expected in self.CARD_HYPERPARAMS.items():
+            run = next(r for r in RUNS if r.name == f"{variant}-nemotron-old")
+            assert run.model_variant == variant
+            for field, value in expected.items():
+                assert getattr(run, field) == value, f"{run.name}.{field}"
+
+    def test_run_names_are_unique(self):
+        from cli.sweep import RUNS
+
+        assert len({r.name for r in RUNS}) == len(RUNS)
+
+    def test_argv_targets_nemotron_and_its_own_project(self):
+        from cli.sweep import RUNS, WANDB_PROJECT
+
+        cmd = RUNS[0].argv(WANDB_PROJECT, no_wandb=False)
+        assert cmd[1:3] == ["-m", "cli.train"]
+        assert cmd[cmd.index("--dataset") + 1] == "nemotron"
+        assert cmd[cmd.index("--run_name") + 1] == RUNS[0].name
+        assert cmd[cmd.index("--wandb_project") + 1] == "pii-redaction-nemotron"
+        assert "--no_wandb" not in cmd
+        assert "--no_wandb" in RUNS[0].argv(WANDB_PROJECT, no_wandb=True)
 
 
 # ===========================================================================

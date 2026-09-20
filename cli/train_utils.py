@@ -41,7 +41,11 @@ class WeightedTokenClassificationTrainer(Trainer):
     def __init__(self, *args, class_weights: Optional[torch.Tensor] = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights
-        
+        # compute_loss below returns a mean, so the Trainer must do the gradient
+        # accumulation scaling. Left True (every transformers 5 forward takes **kwargs) it
+        # hands us num_items_in_batch and skips that scaling, expecting a summed loss.
+        self.model_accepts_loss_kwargs = False
+
     def compute_loss(
         self, 
         model: nn.Module, 
@@ -68,10 +72,10 @@ class WeightedTokenClassificationTrainer(Trainer):
             
         loss_fct = nn.CrossEntropyLoss(weight=weight, ignore_index=-100)
         loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
-        
-        if num_items_in_batch is not None:
-            loss = loss / num_items_in_batch
-            
+
+        # num_items_in_batch is accepted for signature compatibility and deliberately
+        # ignored: dividing this mean by the window's token count shrinks the loss, and
+        # the gradients with it, by ~1/2500.
         return (loss, outputs) if return_outputs else loss
 
 
@@ -93,27 +97,58 @@ class DetailedProgressCallback(TrainerCallback):
                 print(f"  Eval step {step} | eval_loss: {eval_loss:.4f} | f1: {f1_str}")
 
 
-def make_compute_metrics_fn(id2label: dict[int, str]):
-    """Returns a compute_metrics function aligned to the specified id2label mapping."""
-    seqeval = evaluate.load("seqeval")
+def _to_numpy(array) -> np.ndarray:
+    """Accept a torch tensor (batch_eval_metrics passes them straight off the GPU), an
+    ndarray, or a plain list."""
+    return array.cpu().numpy() if isinstance(array, Tensor) else np.asarray(array)
 
-    def compute_metrics(p: EvalPrediction) -> dict[str, float]:
-        predictions, label_ids = p.predictions, p.label_ids
-        predictions = np.argmax(predictions, axis=-1)
-        
+
+def _argmax_to_numpy(logits) -> np.ndarray:
+    """Predicted class ids for a batch of logits.
+
+    Torch tensors are reduced on-device first: numpy has no bfloat16, so calling
+    .numpy() on raw bf16 logits raises before we ever get to the argmax.
+    """
+    if isinstance(logits, Tensor):
+        return logits.argmax(-1).cpu().numpy()
+    return np.asarray(logits).argmax(-1)
+
+
+def make_compute_metrics_fn(id2label: dict[int, str]):
+    """Returns a compute_metrics function aligned to the specified id2label mapping.
+
+    Decodes each batch to BIO tag strings and keeps only those, so evaluation memory
+    stays flat regardless of eval set size. Requires `batch_eval_metrics=True`; without
+    it the Trainer concatenates every logit before calling this once, which is several
+    GB of VRAM for a 30k-row eval split at 111 labels (and OOMs a 12GB card).
+    """
+    seqeval = evaluate.load("seqeval")
+    true_preds: list[list[str]] = []
+    true_labels: list[list[str]] = []
+
+    def compute_metrics(p: EvalPrediction, compute_result: bool = True) -> dict[str, float]:
+        pred_ids = _argmax_to_numpy(p.predictions)
+        label_ids = _to_numpy(p.label_ids)
+
         # Filter out ignored indices (-100)
-        true_preds = [
-            [id2label[pred] for pred, tgt_id in zip(preds_row, labels_row) if tgt_id != -100]
-            for preds_row, labels_row in zip(predictions, label_ids)
-        ]
-        
-        true_labels = [
-            [id2label[tgt_id] for tgt_id in labels_row if tgt_id != -100]
-            for labels_row in label_ids
-        ]
-        
-        results = seqeval.compute(predictions=true_preds, references=true_labels)
-        
+        for preds_row, labels_row in zip(pred_ids, label_ids):
+            true_preds.append(
+                [id2label[int(pred)] for pred, tgt_id in zip(preds_row, labels_row) if tgt_id != -100]
+            )
+            true_labels.append(
+                [id2label[int(tgt_id)] for tgt_id in labels_row if tgt_id != -100]
+            )
+
+        # Intermediate batches only accumulate; the Trainer discards what we return here
+        if not compute_result:
+            return {}
+
+        # pass copies, then reset for the next evaluation — the accumulators are cleared
+        # in place and must not be aliased by whatever seqeval holds on to
+        results = seqeval.compute(predictions=list(true_preds), references=list(true_labels))
+        true_preds.clear()
+        true_labels.clear()
+
         flat = {}
         if results is not None:
             flat.update({

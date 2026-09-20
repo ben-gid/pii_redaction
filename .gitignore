@@ -24,6 +24,7 @@ dist/
 
 # dataset
 data/cleaned_ai4privacy_300k_pii
+nemotron-pii/
 
 # --- ML Model Weights & Artifacts ---
 models/
@@ -47,10 +48,6 @@ wandb/
 .vscode/
 .idea/
 .DS_Store
-
-
-# trial v2
-v2/
 
 # aws
 .aws

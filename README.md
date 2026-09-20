@@ -215,11 +215,59 @@ options:
 
 </details>
 
+### Train your own model
+
+Two datasets are wired into the CLI. Both are saved with the same two columns
+(`source_text`, `privacy_mask`), so the training code is dataset-agnostic — `--dataset`
+only decides where to read from and what to name the run.
+
+| `--dataset` | Source | Train / Val / Test | Entity types |
+|-------------|--------|--------------------|--------------|
+| `ai4privacy` (default) | [`ai4privacy/pii-masking-300k`](https://huggingface.co/datasets/ai4privacy/pii-masking-300k), English subset | 29,908 / 3,973 / 3,973 | 27 (55 BIO labels) |
+| `nemotron` | [`nvidia/Nemotron-PII`](https://huggingface.co/datasets/nvidia/Nemotron-PII) | 140,000 / 30,000 / 30,000 | 55 (111 BIO labels) |
+
+```bash
+# 1. download, clean, split, and write the label maps into data/
+uv run python -m cli.prepare_ds --dataset nemotron
+
+# 2. train one variant (two-stage: frozen backbone → full fine-tune)
+uv run python -m cli.train --dataset nemotron --model_variant small
+
+# 3. or run the whole nemotron sweep — 6 configurations, one process each
+uv run python -m cli.sweep --dry_run    # print the commands without running them
+uv run python -m cli.sweep
+```
+
+Checkpoints land in `models/<run_name>`, defaulting to `<variant>-<dataset suffix>`.
+Requires a GPU and `accelerate`; a run needs `--wandb_project` or `--no_wandb`.
+
+<details>
+<summary>Nemotron sweep configurations</summary>
+
+All six log to the W&B project `pii-redaction-nemotron`. The `*-old` runs reuse the
+hyperparameters published in `model_cards/` verbatim, so the dataset is the only variable
+against the released models. Stage 1 is a frozen-backbone head warmup; stage 2 accumulates
+gradients to the effective batch size shown.
+
+| Run | Variant | Stage 1 (lr / batch / epochs) | Stage 2 (lr / batch / effective) | Rationale |
+|-----|---------|-------------------------------|----------------------------------|-----------|
+| `xsmall-nemotron-old` | xsmall | 1e-3 / 32 / 2 | 2e-5 / 16 / 16 | model card baseline |
+| `small-nemotron-old` | small | 1e-3 / 32 / 2 | 2e-5 / 16 / 16 | model card baseline |
+| `base-nemotron-old` | base | 1e-3 / 32 / 2 | 2e-5 / 8 / 16 | model card baseline |
+| `xsmall-nemotron-eff32-lr3e5` | xsmall | 1e-3 / 32 / 2 | 3e-5 / 32 / 32 | less gradient noise across 111 labels |
+| `small-nemotron-eff32-lr3e5` | small | 1e-3 / 32 / 2 | 3e-5 / 32 / 32 | less gradient noise across 111 labels |
+| `small-nemotron-warmhead` | small | 5e-4 / 32 / 3 | 2e-5 / 16 / 16 | gentler warmup for a 2x wider head |
+
+Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective batch 16 is
+~26k optimizer steps per epoch. Override with `--stage2_epochs`.
+
+</details>
+
 ---
 
 ## Roadmap
 
-- [ ] Upgraded model for better `GIVENNAME` and `LASTNAME` F1 scores
+- [ ] Upgraded model for better `GIVENNAME` and `LASTNAME` F1 scores — retraining on [`nvidia/Nemotron-PII`](https://huggingface.co/datasets/nvidia/Nemotron-PII) (55 entity types, 4.7x the training rows); pipeline is in place, runs pending
 - [ ] HuggingFace Spaces Gradio demo with `gr.HighlightedText`
 - [ ] `/pseudonymize` endpoint (consistent fake-value replacement across a document)
 
@@ -237,6 +285,8 @@ options:
 - **Tokenizer differences across architectures** — DistilBERT (WordPiece), DeBERTa (SentencePiece), and RoBERTa (BPE) each tokenize differently. The offset-alignment logic had to be rewritten per tokenizer.
 
 - **Subword labeling convention** — Continuation subwords are masked with `-100` during training, so `aggregation_strategy="simple"` produces partial entity detections. Must use `aggregation_strategy="first"` at inference.
+
+- **Eval OOM from logit accumulation** — the HuggingFace `Trainer` concatenates every evaluation logit on the GPU before calling `compute_metrics` once. Harmless at 3,973 rows × 55 labels, fatal at 30,000 × 111 — the buffer is ~15x larger and OOMs a 12 GB card mid-eval. Fixed with `batch_eval_metrics=True` plus a `compute_metrics` that decodes each batch to BIO tag strings and keeps only those; eval VRAM is now flat regardless of split size (measured: 0.64 GiB at both 512 and 8,192 rows).
 
 </details>
 
@@ -284,5 +334,12 @@ options:
 - [x] **Phase 5 — Deployment**
   - Docker build
   - ECR push & ECS Fargate deployment
+
+- [ ] **Phase 6 — Nemotron retraining** (in progress)
+  - `nvidia/Nemotron-PII` prepared to the same schema as the ai4privacy dataset (140k/30k/30k, 55 entity types → 111 BIO labels), so no training code is dataset-specific
+  - `DATASETS` registry in `cli/__init__.py` keeps the prep output, the training input, and the run naming in sync
+  - `cli/sweep.py` — 6 configurations to W&B project `pii-redaction-nemotron`, three of them replicating the published model-card hyperparameters exactly
+  - Streaming evaluation metrics so a 30k-row eval split fits in VRAM
+  - Models not yet trained; the published models still come from ai4privacy
 
 </details>

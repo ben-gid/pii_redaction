@@ -1,8 +1,9 @@
 """
 PII Redaction Model Training Script.
 
-Trains a token classification model targeting 27 PII entity types using DeBERTa-v3
-checkpoints. Implements class-weighted loss and two-stage fine-tuning.
+Trains a token classification model on a dataset prepared by prepare_ds.py (see
+`--dataset`) using DeBERTa-v3 checkpoints. Implements class-weighted loss and
+two-stage fine-tuning.
 
 Key Lessons & Design Decisions:
 1. SentencePiece offset mapping & subword labeling:
@@ -27,6 +28,7 @@ Key Lessons & Design Decisions:
 
 from tqdm import tqdm
 import argparse
+import gc
 import json
 from collections import Counter
 from pathlib import Path
@@ -43,6 +45,7 @@ from transformers import (
     TrainingArguments,
 )
 
+from . import DATASETS
 from .train_utils import (
     WeightedTokenClassificationTrainer,
     DetailedProgressCallback,
@@ -60,6 +63,18 @@ torch.manual_seed(42)
 
 EFFECTIVE_BATCH_SIZE = 16
 
+
+def free_vram():
+    """Return cached CUDA blocks to the driver before a training stage.
+
+    Only reclaims memory nothing still references, so the previous stage's trainer must
+    be dropped first — its optimizer holds two fp32 Adam states per parameter, which is
+    the allocation that actually OOMs stage 2. No-op without an initialized CUDA context.
+    """
+    gc.collect()
+    torch.cuda.empty_cache()
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train DeBERTa models for PII Redaction.")
     parser.add_argument(
@@ -70,16 +85,23 @@ def parse_args():
         help="DeBERTa-v3 model variant to train."
     )
     parser.add_argument(
+        "--dataset",
+        type=str,
+        default="ai4privacy",
+        choices=list(DATASETS),
+        help="Prepared dataset to train on. Sets the dataset, label info, and run name defaults."
+    )
+    parser.add_argument(
         "--dataset_path",
         type=str,
         default=None,
-        help="Path to the tokenized dataset. Defaults to 'data/cleaned_ai4privacy_300k_pii'."
+        help="Path to the tokenized dataset. Defaults to the location prepared for --dataset."
     )
     parser.add_argument(
         "--label_info_path",
         type=str,
         default=None,
-        help="Path to the label info JSON file. Defaults to 'data/label_info.json'."
+        help="Path to the label info JSON file. Defaults to the file prepared for --dataset."
     )
     parser.add_argument(
         "--output_dir",
@@ -118,6 +140,25 @@ def parse_args():
         help="Per device batch size for training and evaluation."
     )
     parser.add_argument(
+        "--stage1_batch_size",
+        type=int,
+        default=None,
+        help="Per device batch size for Stage 1. Defaults to --batch_size."
+    )
+    parser.add_argument(
+        "--effective_batch_size",
+        type=int,
+        default=EFFECTIVE_BATCH_SIZE,
+        help="Stage 2 effective batch size. Accumulation steps are derived from --batch_size, "
+             "so raise this instead of --batch_size when VRAM is the constraint."
+    )
+    parser.add_argument(
+        "--run_name",
+        type=str,
+        default=None,
+        help="Name for the W&B run and the model directory. Defaults to '<variant>-<dataset suffix>'."
+    )
+    parser.add_argument(
         "--wandb_project",
         type=str,
         default="pii-redaction",
@@ -146,14 +187,17 @@ def log_pii_test_results(trainer, test_dataset, tokenizer, id2label, run=None):
     id2label = {int(k): v for k, v in id2label.items()}
 
     print("Generating prediction visualization for W&B...")
+    # Only predict the rows that end up in the table: predict() keeps every logit it is
+    # given, so running it over a full 30k-row test split would exhaust VRAM.
+    num_samples = min(len(test_dataset), 100)
+    test_dataset = test_dataset.select(range(num_samples))
+
     pred_output = trainer.predict(test_dataset)
     pred_ids = np.argmax(pred_output.predictions, axis=-1)
     true_ids = pred_output.label_ids
 
     table = wandb.Table(columns=["id", "annotated_sequence", "f1", "precision", "recall", "tp", "fp", "fn"])
 
-    # Log up to 100 sample predictions
-    num_samples = min(len(test_dataset), 100)
     for i in range(num_samples):
         tokens, true_labels, pred_labels = [], [], []
         for token_id, true_id, pred_id in zip(test_dataset[i]["input_ids"], true_ids[i], pred_ids[i]):
@@ -204,9 +248,10 @@ def main():
     project_root = Path(__file__).resolve().parents[1]
     
     # Establish default paths if not provided
+    dataset_cfg = DATASETS[args.dataset]
     data_dir = project_root / "data"
-    dataset_path = Path(args.dataset_path) if args.dataset_path else data_dir / "cleaned_ai4privacy_300k_pii"
-    label_info_path = Path(args.label_info_path) if args.label_info_path else data_dir / "label_info.json"
+    dataset_path = Path(args.dataset_path) if args.dataset_path else data_dir / dataset_cfg.dir_name
+    label_info_path = Path(args.label_info_path) if args.label_info_path else data_dir / dataset_cfg.label_info
 
     # Map variant labels to HF paths
     variant_mapping = {
@@ -217,7 +262,8 @@ def main():
     model_path = variant_mapping[args.model_variant]
     
     # Determine outputs directory
-    run_name = f"{args.model_variant}-bf16-weighted-trainer"
+    stage1_batch_size = args.stage1_batch_size or args.batch_size
+    run_name = args.run_name or f"{args.model_variant}-{dataset_cfg.run_suffix}"
     output_dir = Path(args.output_dir) if args.output_dir else project_root / "models" / run_name
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -282,7 +328,9 @@ def main():
     # Calculate steps for scheduler warmup
     print("Calculating scheduler warmup steps...")
     num_train_samples = len(dataset["train"])
-    total_steps = (num_train_samples // args.batch_size) * args.stage2_epochs
+    # effective, not per-device: the scheduler advances once per optimizer step, so dividing
+    # by batch_size counts accumulation micro-steps and doubles warmup whenever accum > 1
+    total_steps = (num_train_samples // args.effective_batch_size) * args.stage2_epochs
     step2_step2_step2_warmup_steps = int(0.1 * total_steps)
 
     # Setup Stage 1: Freeze backbone and train classifier head
@@ -294,8 +342,8 @@ def main():
         output_dir=str(output_dir),
         report_to="none" if args.no_wandb else "wandb",
         learning_rate=args.stage1_lr,
-        per_device_train_batch_size=args.batch_size,
-        per_device_eval_batch_size=args.batch_size,
+        per_device_train_batch_size=stage1_batch_size,
+        per_device_eval_batch_size=stage1_batch_size,
         gradient_accumulation_steps=1,
         num_train_epochs=args.stage1_epochs,
         weight_decay=0.01,
@@ -303,7 +351,10 @@ def main():
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_f1",
-        warmup_steps=int(0.1 * ((num_train_samples // args.batch_size) * args.stage1_epochs)),
+        # score each eval batch as it comes; accumulating every logit first OOMs on
+        # eval splits the size of nemotron's (see make_compute_metrics_fn)
+        batch_eval_metrics=True,
+        warmup_steps=int(0.1 * ((num_train_samples // stage1_batch_size) * args.stage1_epochs)),
         bf16=True,
         fp16=False,
         max_grad_norm=1.0,
@@ -321,9 +372,16 @@ def main():
         callbacks=[DetailedProgressCallback()],
         class_weights=weights
     )
+    free_vram()
     trainer.train()
 
     # Setup Stage 2: Unfreeze backbone and fine-tune globally
+    # `model` keeps the weights (stage 1 loaded its best checkpoint in place); dropping the
+    # trainer only releases its optimizer state, which stage 2 would otherwise have to fit
+    # alongside its own.
+    del trainer
+    free_vram()
+
     print("--- Stage 2: Full Fine-tuning (backbone unfrozen) ---")
     for param in model.base_model.parameters():
         param.requires_grad = True
@@ -334,13 +392,16 @@ def main():
         learning_rate=args.stage2_lr,
         per_device_train_batch_size=args.batch_size,
         per_device_eval_batch_size=args.batch_size,
-        gradient_accumulation_steps=max(1, EFFECTIVE_BATCH_SIZE // args.batch_size),
+        gradient_accumulation_steps=max(1, args.effective_batch_size // args.batch_size),
         num_train_epochs=args.stage2_epochs,
         weight_decay=0.01,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_f1",
+        # score each eval batch as it comes; accumulating every logit first OOMs on
+        # eval splits the size of nemotron's (see make_compute_metrics_fn)
+        batch_eval_metrics=True,
         warmup_steps=step2_step2_step2_warmup_steps,
         bf16=True,
         fp16=False,
@@ -359,15 +420,17 @@ def main():
         callbacks=[DetailedProgressCallback()],
         class_weights=weights
     )
+    free_vram()
     trainer.train()
 
     # Verify best checkpoint is loaded, compute metrics, and visualize results on W&B
     if not args.no_wandb:
         log_pii_test_results(trainer, dataset["test"], tokenizer, id2label, run=run)
         
-        # Log worst F1 performance categories to stdout/wandb logs
-        pred_output = trainer.predict(test_dataset=dataset["test"]) # type: ignore
-        metrics = getattr(pred_output, "metrics", None) or {}
+        # Log worst F1 performance categories to stdout/wandb logs.
+        # evaluate() rather than predict(): only the metrics are used here, and it is the
+        # path that scores batch by batch instead of holding the whole test split in VRAM.
+        metrics = trainer.evaluate(eval_dataset=dataset["test"], metric_key_prefix="test") # type: ignore
         f1s = [(metric, val) for metric, val in metrics.items() if metric.endswith("f1")]
         sorted_f1s = sorted(f1s, key=lambda x: x[1])
         print("Worst performing entity groups by F1 score:")
