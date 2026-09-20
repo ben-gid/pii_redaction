@@ -1,12 +1,4 @@
 from pydantic import BaseModel, Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-class AppSettings(BaseSettings):
-    api_key: str = ""
-    model_id: str = "bengid/pii-redaction-deberta-small"
-    threshold: float = 0.3
-    
-    model_config = SettingsConfigDict(env_file=".env")
 
 class RedactRequest(BaseModel):
     text: str = Field(

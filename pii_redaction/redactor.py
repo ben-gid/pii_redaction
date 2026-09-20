@@ -115,6 +115,7 @@ class PIIRedactor:
         excluded here and accounted for via ``SPECIAL_TOKENS_RESERVE`` so
         that the per-chunk real-token budget is ``max_length - 2``.
         """
+        assert self.tokenizer is not None
         return self.tokenizer(
             text,
             return_offsets_mapping=True,
@@ -217,7 +218,7 @@ class PIIRedactor:
             chunks.append((chunk_start_char, chunk_end_char))
 
             # If we have consumed the entire token sequence there is
-            # nothing left to chunk — stop.
+            # nothing left to chunk - stop.
             if end >= total_tokens:
                 break
 
