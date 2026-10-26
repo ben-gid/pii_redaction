@@ -53,3 +53,12 @@ def test_demo_redact_response_model(client):
     redaction = RedactionResponse.model_validate(data)
     assert redaction.original == payload["text"]
     assert redaction.entity_count == len(redaction.entities)
+
+def test_demo_redact_cors_preflight(client):
+    """bengid.dev may call /demo/redact from the browser; other origins may not."""
+    preflight = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"}
+    ok = client.options("/demo/redact", headers={"Origin": "https://bengid.dev", **preflight})
+    assert ok.status_code == 200
+    assert ok.headers["access-control-allow-origin"] == "https://bengid.dev"
+    bad = client.options("/demo/redact", headers={"Origin": "https://evil.example", **preflight})
+    assert "access-control-allow-origin" not in bad.headers
