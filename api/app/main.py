@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
 import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
@@ -36,6 +37,13 @@ src_dir = Path(__file__).resolve().parent
 app.mount("/static", StaticFiles(directory=str(src_dir / "static")), name="static")
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 app.add_middleware(RequestLoggingMiddleware)
+# lets the bengid.dev widget call /demo/redact from the browser
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://bengid.dev", "https://www.bengid.dev"],
+    allow_methods=["POST"],
+    allow_headers=["content-type"],
+)
 
 app.include_router(redact.router)
 app.include_router(demo.router)
