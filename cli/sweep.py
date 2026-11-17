@@ -10,10 +10,10 @@ effective batch 16 either way). This is not a pure dataset comparison against th
 ai4privacy models: those were trained before the loss and class-weight fixes, so retrain
 `--dataset ai4privacy` with this CLI for a like-for-like baseline. The remaining runs probe
 knobs the nemotron dataset justifies
-revisiting: it has 4.7x the training rows and 111 BIO labels instead of 55.
+revisiting: it has 3.3x the training rows and 111 BIO labels instead of 55.
 
 Epoch counts are not recorded in the model card. Stage 2 is capped at 3 epochs here
-because 140k rows at effective batch 16 is already ~26k optimizer steps per epoch;
+because 100k rows at effective batch 16 is already ~6.25k optimizer steps per epoch;
 override with --stage2_epochs if you want longer.
 
 Usage::

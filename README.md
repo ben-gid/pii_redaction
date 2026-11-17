@@ -224,7 +224,7 @@ only decides where to read from and what to name the run.
 | `--dataset` | Source | Train / Val / Test | Entity types |
 |-------------|--------|--------------------|--------------|
 | `ai4privacy` (default) | [`ai4privacy/pii-masking-300k`](https://huggingface.co/datasets/ai4privacy/pii-masking-300k), English subset | 29,908 / 3,973 / 3,973 | 27 (55 BIO labels) |
-| `nemotron` | [`nvidia/Nemotron-PII`](https://huggingface.co/datasets/nvidia/Nemotron-PII) | 140,000 / 30,000 / 30,000 | 55 (111 BIO labels) |
+| `nemotron` | [`nvidia/Nemotron-PII`](https://huggingface.co/datasets/nvidia/Nemotron-PII) | 100,000 / 5,000 / 95,000 | 55 (111 BIO labels) |
 
 ```bash
 # 1. download, clean, split, and write the label maps into data/
@@ -237,6 +237,13 @@ uv run python -m cli.train --dataset nemotron --model_variant small
 uv run python -m cli.sweep --dry_run    # print the commands without running them
 uv run python -m cli.sweep
 ```
+
+The nemotron split keeps the source's 100k train rows unchanged and splits its 100k test rows
+into 5k validation and 95k test. Validation is scored after every epoch of both stages, so it is
+kept small; test is scored once per run, and the extra rows give rare entity types enough
+support for stable per-class F1. The earlier 140k / 30k / 30k split trained on 40% more rows and
+scored 6x as many validation rows every epoch. Test scores from runs on the two splits can't be
+compared.
 
 Checkpoints land in `models/<run_name>`, defaulting to `<variant>-<dataset suffix>`.
 Requires a GPU and `accelerate`; a run needs `--wandb_project` or `--no_wandb`.
@@ -260,8 +267,8 @@ effective batch size shown.
 | `small-nemotron-eff32-lr3e5` | small | 1e-3 / 32 / 2 | 3e-5 / 32 / 32 | less gradient noise across 111 labels |
 | `small-nemotron-warmhead` | small | 5e-4 / 32 / 3 | 2e-5 / 16 / 16 | gentler warmup for a 2x wider head |
 
-Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective batch 16 is
-~26k optimizer steps per epoch. Override with `--stage2_epochs`.
+Stage 2 runs 3 epochs, not the model cards' schedule: 100k rows at effective batch 16 is
+~6.25k optimizer steps per epoch. Override with `--stage2_epochs`.
 
 </details>
 
@@ -269,7 +276,7 @@ Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective bat
 
 ## Roadmap
 
-- [ ] Upgraded model for better `GIVENNAME` and `LASTNAME` F1 scores — retraining on [`nvidia/Nemotron-PII`](https://huggingface.co/datasets/nvidia/Nemotron-PII) (55 entity types, 4.7x the training rows); pipeline is in place, runs pending
+- [ ] Upgraded model for better `GIVENNAME` and `LASTNAME` F1 scores — retraining on [`nvidia/Nemotron-PII`](https://huggingface.co/datasets/nvidia/Nemotron-PII) (55 entity types, 3.3x the training rows); pipeline is in place, runs pending
 - [ ] HuggingFace Spaces Gradio demo with `gr.HighlightedText`
 - [ ] `/pseudonymize` endpoint (consistent fake-value replacement across a document)
 
@@ -340,10 +347,11 @@ Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective bat
   - ECR push & ECS Fargate deployment
 
 - [ ] **Phase 6 — Nemotron retraining** (in progress)
-  - `nvidia/Nemotron-PII` prepared to the same schema as the ai4privacy dataset (140k/30k/30k, 55 entity types → 111 BIO labels), so no training code is dataset-specific
+  - `nvidia/Nemotron-PII` prepared to the same schema as the ai4privacy dataset (100k/5k/95k, 55 entity types → 111 BIO labels), so no training code is dataset-specific
   - `DATASETS` registry in `cli/__init__.py` keeps the prep output, the training input, and the run naming in sync
   - `cli/sweep.py` — 6 configurations to W&B project `pii-redaction-nemotron`, three of them reusing the published model-card hyperparameters (training itself differs: the CLI has the loss and class-weight fixes the published models lacked)
-  - Streaming evaluation metrics so a 30k-row eval split fits in VRAM
+  - Streaming evaluation metrics so a large eval split fits in VRAM
+  - Small 5k validation set (scored every epoch) and a 95k test set (scored once) to cut training time
   - Models not yet trained; the published models still come from ai4privacy
 
 </details>

@@ -188,7 +188,7 @@ def log_pii_test_results(trainer, test_dataset, tokenizer, id2label, run=None):
 
     print("Generating prediction visualization for W&B...")
     # Only predict the rows that end up in the table: predict() keeps every logit it is
-    # given, so running it over a full 30k-row test split would exhaust VRAM.
+    # given, so running it over the full ~95k-row test split would exhaust VRAM.
     num_samples = min(len(test_dataset), 100)
     test_dataset = test_dataset.select(range(num_samples))
 

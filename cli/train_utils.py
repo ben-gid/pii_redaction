@@ -120,7 +120,7 @@ def make_compute_metrics_fn(id2label: dict[int, str]):
     Decodes each batch to BIO tag strings and keeps only those, so evaluation memory
     stays flat regardless of eval set size. Requires `batch_eval_metrics=True`; without
     it the Trainer concatenates every logit before calling this once, which is several
-    GB of VRAM for a 30k-row eval split at 111 labels (and OOMs a 12GB card).
+    GB of VRAM for a 30k-row eval set at 111 labels (and OOMs a 12GB card).
     """
     seqeval = evaluate.load("seqeval")
     true_preds: list[list[str]] = []

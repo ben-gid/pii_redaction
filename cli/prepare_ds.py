@@ -31,12 +31,13 @@ import ast
 import json
 from collections import Counter
 from pathlib import Path
-from datasets import load_dataset, concatenate_datasets, DatasetDict
+from datasets import load_dataset, DatasetDict
 from tqdm import tqdm
 
 from . import DATASETS
 
 SEED = 42
+NEMOTRON_VAL_SIZE = 5_000
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Prepare dataset for PII Redaction model training.")
@@ -97,16 +98,16 @@ def prepare_nemotron(dataset_name: str, dataset_path: Path, label_info_path: Pat
     print("Parsing spans into privacy masks...")
     ds = ds.map(to_privacy_mask, batched=True, batch_size=1_000, desc="Parsing spans")
 
-    # The source is a 50/50 train/test split; move 40% of test into train, then halve
-    # the remainder into validation and test -> 70/15/15.
-    print("Re-splitting dataset 70/15/15...")
-    moved = ds["test"].train_test_split(test_size=0.6, seed=SEED)
-    val_test = moved["test"].train_test_split(test_size=0.5, seed=SEED)
+    # The source is a 50/50 train/test split. Train stays as-is (training time scales with
+    # it). Validation is scored every epoch, so it gets a small 5k slice of test; the
+    # remaining ~95k stay as test, scored once per run, giving rare classes real support.
+    print(f"Splitting {NEMOTRON_VAL_SIZE:,} validation rows off the test split...")
+    val_test = ds["test"].train_test_split(test_size=NEMOTRON_VAL_SIZE, seed=SEED)
 
     ds = DatasetDict({
-        "train": concatenate_datasets([ds["train"], moved["train"]]),
-        "validation": val_test["train"],
-        "test": val_test["test"],
+        "train": ds["train"],
+        "validation": val_test["test"],
+        "test": val_test["train"],
     })
     assert sum(len(split) for split in ds.values()) == total_len
 
