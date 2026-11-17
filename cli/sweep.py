@@ -6,8 +6,10 @@ CUDA allocator state do not survive being reused across trainings.
 
 The `*-old` runs replicate the hyperparameters published in `model_cards/` exactly
 (stage 1: lr 1e-3, batch 32; stage 2: lr 2e-5, batch 8 for base / 16 for small+xsmall,
-effective batch 16 either way), so the dataset is the only variable versus the released
-ai4privacy models. The remaining runs probe knobs the nemotron dataset justifies
+effective batch 16 either way). This is not a pure dataset comparison against the released
+ai4privacy models: those were trained before the loss and class-weight fixes, so retrain
+`--dataset ai4privacy` with this CLI for a like-for-like baseline. The remaining runs probe
+knobs the nemotron dataset justifies
 revisiting: it has 4.7x the training rows and 111 BIO labels instead of 55.
 
 Epoch counts are not recorded in the model card. Stage 2 is capped at 3 epochs here

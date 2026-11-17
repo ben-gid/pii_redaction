@@ -61,7 +61,9 @@ Non-obvious constraints, each learned the hard way (the module docstrings carry 
 - Label alignment ([train_utils.py](cli/train_utils.py) `tokenize_and_align_labels`) matches by **character overlap on the per-word union of sub-token offsets**, not equality — SentencePiece folds leading whitespace into the first sub-token, so exact-offset matching silently labels nothing.
 - `train.py` casts every module to float32 before training. DeBERTa-v3 otherwise loads fp16 weights despite `bf16=True, fp16=False` and every weight goes NaN.
 - `make_compute_metrics_fn` returns a **stateful** accumulator and requires `batch_eval_metrics=True`. Without it the Trainer concatenates all logits before one call and OOMs a 12GB card on a 30k-row eval split.
-- Two stages, both required: frozen backbone at lr 1e-3, then full fine-tune at 2e-5. `WeightedTokenClassificationTrainer` applies normalized inverse-frequency class weights — without them the model predicts only `O`.
+- Two stages: frozen backbone at lr 1e-3, then full fine-tune at 2e-5. `WeightedTokenClassificationTrainer` applies normalized inverse-frequency class weights. Whether they're needed is unverified: the published ai4privacy models were trained with them silently uniform and still reached F1 0.94–0.96 (the all-`O` symptom was most likely the fp16 NaN bug above).
+- `compute_loss` returns a mean and must not divide by `num_items_in_batch`; `model_accepts_loss_kwargs = False` makes the Trainer do the accumulation scaling. Dividing anyway shrinks loss and gradients ~1/2500 and the logged loss reads `0.0000`.
+- Cast `id2label` keys to `int` on load. JSON keys are strings, and with string keys the class-weight counter finds nothing, so every weight comes out equal.
 - `prepare_ds.py` keeps `entity_classes` in first-appearance order, not sorted, for the ai4privacy flow. Sorting changes label ids and invalidates the published checkpoints (see the TODO there).
 
 Run names double as `models/<name>` output directories, so a duplicate silently overwrites a sibling run.

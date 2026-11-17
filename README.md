@@ -245,9 +245,11 @@ Requires a GPU and `accelerate`; a run needs `--wandb_project` or `--no_wandb`.
 <summary>Nemotron sweep configurations</summary>
 
 All six log to the W&B project `pii-redaction-nemotron`. The `*-old` runs reuse the
-hyperparameters published in `model_cards/` verbatim, so the dataset is the only variable
-against the released models. Stage 1 is a frozen-backbone head warmup; stage 2 accumulates
-gradients to the effective batch size shown.
+hyperparameters published in `model_cards/` verbatim. They are not a pure dataset comparison
+against the released models, which were trained before the loss and class-weight fixes (see
+Engineering Challenges); retrain `--dataset ai4privacy` with the CLI for a like-for-like
+baseline. Stage 1 is a frozen-backbone head warmup; stage 2 accumulates gradients to the
+effective batch size shown.
 
 | Run | Variant | Stage 1 (lr / batch / epochs) | Stage 2 (lr / batch / effective) | Rationale |
 |-----|---------|-------------------------------|----------------------------------|-----------|
@@ -288,6 +290,8 @@ Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective bat
 
 - **Eval OOM from logit accumulation** — the HuggingFace `Trainer` concatenates every evaluation logit on the GPU before calling `compute_metrics` once. Harmless at 3,973 rows × 55 labels, fatal at 30,000 × 111 — the buffer is ~15x larger and OOMs a 12 GB card mid-eval. Fixed with `batch_eval_metrics=True` plus a `compute_metrics` that decodes each batch to BIO tag strings and keeps only those; eval VRAM is now flat regardless of split size (measured: 0.64 GiB at both 512 and 8,192 rows).
 
+- **Loss divided twice, class weights silently uniform** — the training loss read `0.0000` from the first few hundred steps. `compute_loss` took a mean cross-entropy, then divided it by `num_items_in_batch`, which transformers 5 passes when a model's forward accepts `**kwargs` and expects a summed loss in return. Loss and gradients shrank ~2,500×. AdamW's scale invariance meant the models still trained (F1 0.94–0.96), but gradient clipping never engaged and every logged loss curve was meaningless. Separately, `id2label` kept JSON's string keys, so the label counter found zero for every class and all weights came out equal. Fixed by dropping the division, setting `model_accepts_loss_kwargs=False`, and casting label ids to `int` at load. The published models predate the fix; their F1 scores are unaffected, since they come from predictions, not the loss.
+
 </details>
 
 ---
@@ -307,7 +311,7 @@ Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective bat
   - DeBERTa-v3-small: macro F1 **0.9497** on test set
   - DeBERTa-v3-xsmall: macro F1 **0.9422** on test set
   - RoBERTa-base experiment (0.9553 test F1)
-  - Custom `WeightedTokenClassificationTrainer` with class-balanced loss
+  - Custom `WeightedTokenClassificationTrainer` for class-balanced loss (a label-key bug left the weights uniform for the published models; see Engineering Challenges)
   - Two-phase training (frozen backbone → unfrozen full fine-tune)
   - W&B logging with per-entity F1 and interactive HTML prediction tables
   - Models published to HF Hub: `bengid/pii-redaction-deberta-{base,small,xsmall}`
@@ -338,7 +342,7 @@ Stage 2 runs 3 epochs, not the model cards' schedule: 140k rows at effective bat
 - [ ] **Phase 6 — Nemotron retraining** (in progress)
   - `nvidia/Nemotron-PII` prepared to the same schema as the ai4privacy dataset (140k/30k/30k, 55 entity types → 111 BIO labels), so no training code is dataset-specific
   - `DATASETS` registry in `cli/__init__.py` keeps the prep output, the training input, and the run naming in sync
-  - `cli/sweep.py` — 6 configurations to W&B project `pii-redaction-nemotron`, three of them replicating the published model-card hyperparameters exactly
+  - `cli/sweep.py` — 6 configurations to W&B project `pii-redaction-nemotron`, three of them reusing the published model-card hyperparameters (training itself differs: the CLI has the loss and class-weight fixes the published models lacked)
   - Streaming evaluation metrics so a 30k-row eval split fits in VRAM
   - Models not yet trained; the published models still come from ai4privacy
 
