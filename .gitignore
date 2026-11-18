@@ -62,3 +62,7 @@ cf-origin.pem
 # hey test that contains api key
 test_api_with_hey*
 testBody.json
+
+nemotron-pii/
+sweep_models/
+.secrets
