@@ -7,7 +7,6 @@ on:
   workflow_call:
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -16,16 +15,17 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      AWS_REGION: us-west-2
-      ECS_CLUSTER: pii-redaction-cluster
+      AWS_REGION: us-east-2
+      ECS_CLUSTER: pii-cluster
       ECS_SERVICE: pii-redaction-service
       DNS_NAME: pii-redaction.bengid.dev
 
     steps:
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Sync Cloudflare A record with task public IP

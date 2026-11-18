@@ -9,7 +9,6 @@ on:
     - 'cli/**'
 
 permissions:
-  id-token: write
   contents: read
 
 jobs:
@@ -18,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
     
     env:
-      AWS_REGION: us-west-2
-      ECR_REGISTRY: 618642321086.dkr.ecr.us-west-2.amazonaws.com
+      AWS_REGION: us-east-2
+      ECR_REGISTRY: 597289950428.dkr.ecr.us-east-2.amazonaws.com
       ECR_REPOSITORY: pii-redaction-api
-      ECS_CLUSTER: pii-redaction-cluster
+      ECS_CLUSTER: pii-cluster
       ECS_SERVICE: pii-redaction-service
       TASK_DEFINITION_FAMILY: pii-redaction-api
       CONTAINER_NAME: pii-redaction-api
@@ -30,10 +29,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
